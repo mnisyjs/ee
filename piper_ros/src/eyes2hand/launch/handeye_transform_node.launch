@@ -1,0 +1,3 @@
+<launch>
+    <node pkg="eyes2hand" type="handeye_transform_node.py" name="handeye_transform_node" output="screen"
+</launch>

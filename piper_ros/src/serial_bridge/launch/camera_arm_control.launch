@@ -1,0 +1,37 @@
+<launch>
+    <!-- 相机模拟节点 -->
+    <node name="camera_simulator" pkg="serial_bridge" type="camera_simulator.py" output="screen">
+        <!-- 相机参数 -->
+        <param name="publish_rate" value="0.1" />  <!-- 每10秒发布一次 -->
+    </node>
+
+    <!-- 小车控制节点 -->
+    <node name="chassis_control_node" pkg="serial_bridge" type="main" output="screen">
+        <param name="com_name" value="/dev/ttyUSB0" />
+        <param name="position_tolerance" value="0.1" />
+        <param name="orientation_tolerance" value="0.1" />
+    </node>
+
+    <!-- 机械臂控制节点 -->
+    <node name="arm_control_node" pkg="arm_control_node" type="arm_control_node" output="screen">
+        <param name="position_tolerance" value="0.5" />
+        <param name="orientation_tolerance" value="0.3" />
+        <param name="optimal_distance" value="1.0" />
+    </node>
+
+    <!-- MoveIt控制服务器 -->
+    <node name="joint_moveit_ctrl_server" pkg="moveit_ctrl" type="joint_moveit_ctrl_server.py" output="screen">
+        <!-- MoveIt相关参数 -->
+    </node>
+
+    <!-- 可选：障碍检测模拟节点 -->
+    <node name="obstacle_simulator" pkg="serial_bridge" type="obstacle_simulator.py" output="screen" if="false">
+        <!-- 如果需要障碍检测模拟，可以启用这个节点 -->
+    </node>
+
+    <!-- 可选：手眼标定节点 -->
+    <node name="handeye_transform_node" pkg="eyes2hand" type="handeye_transform_node.py" output="screen" if="false">
+        <!-- 如果需要手眼标定，可以启用这个节点 -->
+    </node>
+
+</launch> 

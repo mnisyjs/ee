@@ -1,0 +1,6 @@
+<launch>
+    <node pkg="serial_bridge" type="main_node" name="serial_bridge" output="screen">
+        <param name="com_name" value="/dev/ttyUSB0"/>
+    </node>
+    <node pkg="serial_bridge" type="odom_trajectory_control" name="odom_trajectory_control" output="screen"/>
+</launch>

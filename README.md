@@ -1,2 +1,2 @@
 # ee
-111
+Competition use, please don't spread out or use in commercial places.

@@ -168,11 +168,7 @@ add_dependencies(odom_trajectory_control ${${PROJECT_NAME}_EXPORTED_TARGETS} ${c
 
 ## Mark executable scripts (Python etc.) for installation
 ## in contrast to setup.py, you can choose the destination
-catkin_install_python(PROGRAMS
-  scripts/camera_simulator.py
-  scripts/obstacle_simulator.py
-  DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
-)
+# No camera-side simulators to install
 
 ## Mark executables for installation
 ## See http://docs.ros.org/melodic/api/catkin/html/howto/format1/building_executables.html

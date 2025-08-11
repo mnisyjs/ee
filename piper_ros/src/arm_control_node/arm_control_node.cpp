@@ -407,9 +407,15 @@ void ArmControlNode::operateGripper(const std::string& action) {
     piper_msgs::Gripper srv;
     
     if (action == "cut") {
-        srv.request.gripper = 0.0; // 夹爪闭合
+        srv.request.gripper_angle = 0.0; // 夹爪闭合
+        srv.request.gripper_effort = 0.0; // 夹爪力度
+        srv.request.gripper_code = 0; // 夹爪代码
+        srv.request.set_zero = 0; // 不设置零点
     } else if (action == "release") {
-        srv.request.gripper = 0.035; // 夹爪张开
+        srv.request.gripper_angle = 0.035; // 夹爪张开
+        srv.request.gripper_effort = 0.0; // 夹爪力度
+        srv.request.gripper_code = 0; // 夹爪代码
+        srv.request.set_zero = 0; // 不设置零点
     } else {
         ROS_WARN("Unknown gripper action: %s", action.c_str());
         return;

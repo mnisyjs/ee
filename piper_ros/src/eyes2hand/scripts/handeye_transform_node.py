@@ -19,14 +19,14 @@ class HandEyeTransformNode(object):
 
         # 1. 加载URDF文件，初始化逆解求解器
         rospack = rospkg.RosPack()
-        urdf_pkg_path = rospack.get.path('arm')
-        urdf_path = os.path.join(urdf_pkg_path, 'urdf/arm.urdf')
+        urdf_pkg_path = rospack.get_path('armmu')
+        urdf_path = os.path.join(urdf_pkg_path, 'urdf/armmu.urdf')
         self.robot_urdf = URDF.from_xml_file(urdf_path)
         rospy.loginfo("Loaded URDF from: {}".format(urdf_path))
 
         # 初始化MoveIt!（如果使用）
         moveit_commander.roscpp_initialize([])
-        self.arm_group = moveit_commander.MoveGroupCommander("arm") #movegroup名称
+        self.arm_group = moveit_commander.MoveGroupCommander("piper") # 使用统一的 piper 规划组
 
         # 2. 订阅相机目标位姿
         camera_topic = rospy.get_param('~camera_pose_topic', '/camera/target_pose')

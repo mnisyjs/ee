@@ -20,9 +20,9 @@ private:
     Uart_Thread uart_;
     
     // PID 控制器对象（用于精确位置控制）
-    PIDController pid_x(1.0, 0.0, 0.05, -0.5, 0.5);
-    PIDController pid_y(1.0, 0.0, 0.05, -0.5, 0.5);
-    PIDController pid_yaw(2.0, 0.0, 0.1, -1.0, 1.0);
+    PIDController pid_x;
+    PIDController pid_y;
+    PIDController pid_yaw;
     
     // 状态变量
     bool is_moving_;
@@ -32,7 +32,8 @@ private:
     double orientation_tolerance_; // 角度容差
     
 public:
-    ChassisControlNode() : is_moving_(false), is_emergency_stop_(false), position_tolerance_(0.1), orientation_tolerance_(0.1) {
+    ChassisControlNode() : is_moving_(false), is_emergency_stop_(false), position_tolerance_(0.1), orientation_tolerance_(0.1), pid_x(1.0, 0.0, 0.05, -0.5, 0.5), pid_y(1.0, 0.0, 0.05, -0.5, 0.5), pid_yaw(2.0, 0.0, 0.1, -1.0, 1.0)
+    {
         // 获取参数
         std::string com_name;
         nh_.param<std::string>("com_name", com_name, "/dev/ttyUSB0");

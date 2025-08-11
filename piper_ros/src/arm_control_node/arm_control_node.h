@@ -6,7 +6,7 @@
 #include <std_msgs/String.h>
 #include <geometry_msgs/PoseStamped.h>
 #include <nav_msgs/Odometry.h>
-#include <your_msgs_pkg/HandEyeIK.h>
+#include <eyes2hand/HandEyeIK.h>
 #include <moveit_ctrl/JointMoveitCtrl.h>
 #include <piper_msgs/Gripper.h>
 #include <sensor_msgs/JointState.h>
@@ -17,7 +17,7 @@ public:
     ArmControlNode(ros::NodeHandle& nh);
 
     void cameraTargetCallback(const arm_control_node::CameraTargets::ConstPtr& msg);
-    void handeyeCallback(const your_msgs_pkg::HandEyeIK::ConstPtr& msg);
+    void handeyeCallback(const eyes2hand::HandEyeIK::ConstPtr& msg);
     void teachBasketCallback(const std_msgs::Float64MultiArray::ConstPtr& msg);
     void visionCallback(const std_msgs::Bool::ConstPtr& msg);
     void chassisArrivalCallback(const std_msgs::Bool::ConstPtr& msg);

@@ -36,16 +36,21 @@ ArmControlNode::ArmControlNode(ros::NodeHandle& nh) : nh_(nh), current_state_(ID
     piper_client_ = nh_.serviceClient<moveit_ctrl::JointMoveitCtrl>("/joint_moveit_ctrl_piper");
     gripper_client_ = nh_.serviceClient<piper_msgs::Gripper>("/joint_moveit_ctrl_gripper");
     
-    // 等待服务可用
-    if (!piper_client_.waitForExistence(ros::Duration(5.0))) {
-        ROS_ERROR("Piper moveit control service not available!");
-    } else {
+    // 循环等待服务可用，避免5秒超时问题
+    ROS_INFO("Waiting for MoveIt services to become available...");
+    while (!piper_client_.waitForExistence(ros::Duration(1.0)) && ros::ok()) {
+        ROS_WARN("Piper moveit control service not available, retrying...");
+        ros::Duration(1.0).sleep();
+    }
+    if (ros::ok()) {
         ROS_INFO("Piper moveit control service is ready.");
     }
     
-    if (!gripper_client_.waitForExistence(ros::Duration(5.0))) {
-        ROS_ERROR("Gripper control service not available!");
-    } else {
+    while (!gripper_client_.waitForExistence(ros::Duration(1.0)) && ros::ok()) {
+        ROS_WARN("Gripper control service not available, retrying...");
+        ros::Duration(1.0).sleep();
+    }
+    if (ros::ok()) {
         ROS_INFO("Gripper control service is ready.");
     }
 

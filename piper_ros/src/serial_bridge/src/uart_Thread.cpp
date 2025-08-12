@@ -1,4 +1,9 @@
 #include "serial_bridge/uart_Thread.hpp"
+#include <ros/ros.h>
+#include <nav_msgs/Odometry.h>
+#include <tf/transform_broadcaster.h>
+#include <sstream>
+#include <cstring>
 
 /**
  * @brief 读串口线程函数
@@ -25,6 +30,23 @@ void Uart_Thread::Thread_Read_Uart()
 
         /*读取到串口后将数据送入队列*/
         PushreadBuffToQueue(read_length);
+
+        /*尝试解析ASCII odom数据（优先处理）*/
+        if (read_length > 0) {
+            // 创建临时缓冲区来存储ASCII数据
+            char ascii_buffer[256];
+            memset(ascii_buffer, 0, sizeof(ascii_buffer));
+            
+            // 将读取的数据转换为ASCII字符串
+            for (int i = 0; i < read_length && i < sizeof(ascii_buffer) - 1; i++) {
+                ascii_buffer[i] = readBuff[i];
+            }
+            
+            // 尝试解析odom数据
+            if (parseOdomData(ascii_buffer)) {
+                // 成功解析odom，继续处理二进制数据
+            }
+        }
 
         /*从队列从获取正确的数据*/
         uint8_t aligned_data[uart_length] = {0};
@@ -171,4 +193,79 @@ void Uart_Thread_Space::Mission2_Assignment(Uart_Thread *uart_ptr, uint16_t X, f
     uart_ptr->writeBuff[2] = 0x02;
     memcpy(&uart_ptr->writeBuff[3], &X, 2);
     memcpy(&uart_ptr->writeBuff[5], &Y, 4);
+}
+
+/**
+ * @brief 解析ASCII odom数据
+ * @param ascii_data ASCII字符串数据
+ * @return true if successfully parsed odom data
+ */
+bool Uart_Thread::parseOdomData(const char* ascii_data)
+{
+    // 检查是否包含odom数据
+    if (strstr(ascii_data, "odom:") == nullptr) {
+        return false;
+    }
+    
+    // 解析格式: "odom:%.3f;%.3f;%.3f;%.3f;%.3f;\r\n"
+    // 对应: pos_x, pos_y, ang_rad, v_linear, v_angular
+    float pos_x, pos_y, ang_rad, v_linear, v_angular;
+    
+    if (sscanf(ascii_data, "odom:%f;%f;%f;%f;%f;", &pos_x, &pos_y, &ang_rad, &v_linear, &v_angular) == 5) {
+        // 成功解析，发布odom消息
+        static ros::NodeHandle nh;
+        static ros::Publisher odom_pub = nh.advertise<nav_msgs::Odometry>("/odom", 10);
+        static tf::TransformBroadcaster odom_broadcaster;
+        
+        // 创建odom消息
+        nav_msgs::Odometry odom_msg;
+        odom_msg.header.stamp = ros::Time::now();
+        odom_msg.header.frame_id = "odom";
+        odom_msg.child_frame_id = "base_link";
+        
+        // 设置位置
+        odom_msg.pose.pose.position.x = pos_x;
+        odom_msg.pose.pose.position.y = pos_y;
+        odom_msg.pose.pose.position.z = 0.0;
+        
+        // 设置方向（yaw角转四元数）
+        tf::Quaternion q;
+        q.setRPY(0, 0, ang_rad);
+        odom_msg.pose.pose.orientation.x = q.x();
+        odom_msg.pose.pose.orientation.y = q.y();
+        odom_msg.pose.pose.orientation.z = q.z();
+        odom_msg.pose.pose.orientation.w = q.w();
+        
+        // 设置速度
+        odom_msg.twist.twist.linear.x = v_linear;
+        odom_msg.twist.twist.linear.y = 0.0;
+        odom_msg.twist.twist.linear.z = 0.0;
+        odom_msg.twist.twist.angular.x = 0.0;
+        odom_msg.twist.twist.angular.y = 0.0;
+        odom_msg.twist.twist.angular.z = v_angular;
+        
+        // 发布odom消息
+        odom_pub.publish(odom_msg);
+        
+        // 发布tf变换
+        geometry_msgs::TransformStamped odom_trans;
+        odom_trans.header.stamp = ros::Time::now();
+        odom_trans.header.frame_id = "odom";
+        odom_trans.child_frame_id = "base_link";
+        odom_trans.transform.translation.x = pos_x;
+        odom_trans.transform.translation.y = pos_y;
+        odom_trans.transform.translation.z = 0.0;
+        odom_trans.transform.rotation.x = q.x();
+        odom_trans.transform.rotation.y = q.y();
+        odom_trans.transform.rotation.z = q.z();
+        odom_trans.transform.rotation.w = q.w();
+        odom_broadcaster.sendTransform(odom_trans);
+        
+        ROS_INFO("Published odom: x=%.3f, y=%.3f, yaw=%.3f, v=%.3f, w=%.3f", 
+                 pos_x, pos_y, ang_rad, v_linear, v_angular);
+        
+        return true;
+    }
+    
+    return false;
 }

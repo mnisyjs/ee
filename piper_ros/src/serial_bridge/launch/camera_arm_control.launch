@@ -1,8 +1,13 @@
 <launch>
     <!-- 相机模拟节点已移除 -->
 
+    <!-- 先启动 MoveIt（加载 robot_description + move_group + joint_moveit_ctrl_server，无 RViz） -->
+    <include file="$(find piper_with_gripper_moveit)/launch/demo.launch">
+        <arg name="use_rviz" value="false" />
+    </include>
+
     <!-- 小车控制节点 -->
-    <node name="chassis_control_node" pkg="serial_bridge" type="main" output="screen">
+    <node name="chassis_control_node" pkg="serial_bridge" type="main_node" output="screen">
         <param name="com_name" value="/dev/ttyUSB0" />
         <param name="position_tolerance" value="0.1" />
         <param name="orientation_tolerance" value="0.1" />
@@ -13,11 +18,6 @@
         <param name="position_tolerance" value="0.5" />
         <param name="orientation_tolerance" value="0.3" />
         <param name="optimal_distance" value="1.0" />
-    </node>
-
-    <!-- MoveIt控制服务器 -->
-    <node name="joint_moveit_ctrl_server" pkg="moveit_ctrl" type="joint_moveit_ctrl_server.py" output="screen">
-        <!-- MoveIt相关参数 -->
     </node>
 
     <!-- 障碍检测模拟节点已移除 -->

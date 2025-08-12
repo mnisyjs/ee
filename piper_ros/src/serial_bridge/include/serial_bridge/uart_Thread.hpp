@@ -59,6 +59,13 @@ public:
     void Disable_Thread_Write_Uart();
 
     /**
+     * @brief 解析ASCII odom数据
+     * @param ascii_data ASCII字符串数据
+     * @return true if successfully parsed odom data
+     */
+    bool parseOdomData(const char* ascii_data);
+
+    /**
      * @brief 任务发送串口模板函数
      * @note 模板函数不能在.h或.hpp中定义，再在.cpp中实现
      *

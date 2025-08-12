@@ -7,6 +7,7 @@ find_package(catkin REQUIRED COMPONENTS
   std_msgs
   geometry_msgs
   nav_msgs
+  eyes2hand
   tf
   moveit_ctrl
   piper_msgs
@@ -32,6 +33,7 @@ catkin_package(
     std_msgs 
     geometry_msgs 
     nav_msgs 
+    eyes2hand
     tf 
     moveit_ctrl 
     piper_msgs
@@ -40,6 +42,7 @@ catkin_package(
 
 ## Specify additional locations of header files
 include_directories(
+  include
   ${catkin_INCLUDE_DIRS}
 )
 

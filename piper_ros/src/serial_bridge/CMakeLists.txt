@@ -11,7 +11,6 @@ find_package(catkin REQUIRED COMPONENTS
   roscpp
   std_msgs
   geometry_msgs
-  nav_msgs
   tf
 )
 find_package(Eigen3 REQUIRED)
@@ -107,7 +106,7 @@ find_package(Eigen3 REQUIRED)
 catkin_package(
   INCLUDE_DIRS include
 #  LIBRARIES serial_bridge
-  CATKIN_DEPENDS nav_msgs roscpp std_msgs
+  CATKIN_DEPENDS roscpp std_msgs
 #  DEPENDS system_lib
 )
 
@@ -156,9 +155,7 @@ target_link_libraries(main_node
   ${catkin_LIBRARIES}
 )
 
-add_executable(odom_trajectory_control src/odom_trajectory_control.cpp)
-target_link_libraries(odom_trajectory_control ${catkin_LIBRARIES})
-add_dependencies(odom_trajectory_control ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+
 #############
 ## Install ##
 #############

@@ -2,7 +2,6 @@
 #define __QUEUE_T_H
 
 #include <ros/ros.h>
-#include <nav_msgs/Odometry.h>
 #include <Eigen/Geometry>
 #include <Eigen/Dense>
 #include <Eigen/Core>

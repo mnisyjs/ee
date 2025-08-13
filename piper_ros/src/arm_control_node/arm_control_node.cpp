@@ -83,7 +83,7 @@ void ArmControlNode::cameraTargetCallback(const arm_control_node::CameraTargets:
     }
 }
 
-void ArmControlNode::handeyeCallback(const your_msgs_pkg::HandEyeIK::ConstPtr& msg) {
+void ArmControlNode::handeyeCallback(const eyes2hand::HandEyeIK::ConstPtr& msg) {
     ROS_INFO("Received HandEyeIK target for precise control.");
     
     // 只有在小车到位后才执行精确的机械臂控制

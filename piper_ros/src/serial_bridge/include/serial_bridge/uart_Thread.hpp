@@ -10,7 +10,7 @@ class Uart_Thread : public Uart
 {
 private:
 /*是否显示原始读串口帧数据*/
-#define enable_show_read false
+#define enable_show_read true
 /*是否显示原始写串口帧数据*/
 #define enable_show_write true
 
@@ -95,6 +95,22 @@ public:
 #endif
     }
 };
+
+/**
+ * @brief 解析ASCII odom数据
+ * @param ascii_data ASCII字符串数据
+ * @return true if successfully parsed odom data
+ */
+ bool parseOdomData(const char* ascii_data);
+    
+ /**
+  * @brief 解析STM二进制数据
+  * @param data 二进制数据
+  * @param length 数据长度
+  * @return true if successfully parsed STM data
+  */
+ bool parseSTMData(const uint8_t* data, size_t length);
+ 
 
 /**
  * @brief 存放一些任务发送串口线要用到的函数

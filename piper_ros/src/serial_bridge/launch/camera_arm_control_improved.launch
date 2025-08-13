@@ -1,0 +1,30 @@
+<?xml version="1.0"?>
+<launch>
+  <!-- 启动 MoveIt 控制服务节点 -->
+  <include file="$(find moveit_ctrl)/launch/moveit_ctrl_server.launch" />
+  
+  <!-- 等待 MoveIt 服务启动 -->
+  <node name="wait_for_moveit_services" pkg="rostopic" type="rostopic" 
+        args="echo /joint_moveit_ctrl_piper" output="screen" 
+        launch-prefix="timeout 30s" />
+  
+  <!-- 启动串口桥接节点 -->
+  <include file="$(find serial_bridge)/launch/serial_bridge.launch" />
+  
+  <!-- 等待串口桥接启动 -->
+  <node name="wait_for_serial_bridge" pkg="rostopic" type="rostopic" 
+        args="echo /odom" output="screen" 
+        launch-prefix="timeout 10s" />
+  
+  <!-- 启动机械臂控制节点 -->
+  <node name="arm_control_node" pkg="arm_control_node" type="arm_control_node" output="screen">
+    <!-- 参数配置 -->
+    <param name="position_tolerance" value="0.5" />
+    <param name="orientation_tolerance" value="0.3" />
+    <param name="optimal_distance" value="1.0" />
+  </node>
+  
+  <!-- 启动相机节点（如果有的话） -->
+  <!-- <include file="$(find your_camera_package)/launch/camera.launch" /> -->
+  
+</launch>

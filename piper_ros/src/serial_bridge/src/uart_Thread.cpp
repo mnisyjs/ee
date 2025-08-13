@@ -45,6 +45,11 @@ void Uart_Thread::Thread_Read_Uart()
             // 尝试解析odom数据
             if (parseOdomData(ascii_buffer)) {
                 // 成功解析odom，继续处理二进制数据
+                ROS_DEBUG("Successfully parsed odom data");
+            } else if (strstr(ascii_buffer, "STM:") != nullptr) {
+                // 检测到STM格式数据，跳过二进制处理
+                ROS_DEBUG("Detected STM format data, skipping binary processing");
+                continue;
             }
         }
 
@@ -81,9 +86,11 @@ void Uart_Thread::Thread_Read_Uart()
             /*从队列中获取正确的数据失败*/
 
             /*打印错误数据*/
+#if enable_show_read
             COUT_RED_START;
             ShowReadBuff();
             COUT_COLOR_END;
+#endif
         }
     }
 }
@@ -200,6 +207,7 @@ void Uart_Thread_Space::Mission2_Assignment(Uart_Thread *uart_ptr, uint16_t X, f
  * @param ascii_data ASCII字符串数据
  * @return true if successfully parsed odom data
  */
+
 bool Uart_Thread::parseOdomData(const char* ascii_data)
 {
     // 检查是否包含odom数据
@@ -268,4 +276,71 @@ bool Uart_Thread::parseOdomData(const char* ascii_data)
     }
     
     return false;
+}
+
+// 添加新的STM数据解析函数
+bool Uart_Thread::parseSTMData(const uint8_t* data, size_t length)
+{
+    // 检查STM数据头
+    if (length < 16 || memcmp(data, "STM:", 4) != 0) {
+        return false;
+    }
+    
+    // 解析STM数据格式（根据你的实际数据格式调整）
+    // 假设格式: STM:pos_x(4字节)pos_y(4字节)ang_rad(4字节)v_linear(4字节)
+    float pos_x, pos_y, ang_rad, v_linear;
+    
+    memcpy(&pos_x, data + 4, 4);
+    memcpy(&pos_y, data + 8, 4);
+    memcpy(&ang_rad, data + 12, 4);
+    memcpy(&v_linear, data + 16, 4);
+    
+    // 发布odom消息（复用现有逻辑）
+    static ros::NodeHandle nh;
+    static ros::Publisher odom_pub = nh.advertise<nav_msgs::Odometry>("/odom", 10);
+    static tf::TransformBroadcaster odom_broadcaster;
+    
+    nav_msgs::Odometry odom_msg;
+    odom_msg.header.stamp = ros::Time::now();
+    odom_msg.header.frame_id = "odom";
+    odom_msg.child_frame_id = "base_link";
+    
+    odom_msg.pose.pose.position.x = pos_x;
+    odom_msg.pose.pose.position.y = pos_y;
+    odom_msg.pose.pose.position.z = 0.0;
+    
+    tf::Quaternion q;
+    q.setRPY(0, 0, ang_rad);
+    odom_msg.pose.pose.orientation.x = q.x();
+    odom_msg.pose.pose.orientation.y = q.y();
+    odom_msg.pose.pose.orientation.z = q.z();
+    odom_msg.pose.pose.orientation.w = q.w();
+    
+    odom_msg.twist.twist.linear.x = v_linear;
+    odom_msg.twist.twist.linear.y = 0.0;
+    odom_msg.twist.twist.linear.z = 0.0;
+    odom_msg.twist.twist.angular.x = 0.0;
+    odom_msg.twist.twist.angular.y = 0.0;
+    odom_msg.twist.twist.angular.z = 0.0;
+    
+    odom_pub.publish(odom_msg);
+    
+    // 发布tf变换
+    geometry_msgs::TransformStamped odom_trans;
+    odom_trans.header.stamp = ros::Time::now();
+    odom_trans.header.frame_id = "odom";
+    odom_trans.child_frame_id = "base_link";
+    odom_trans.transform.translation.x = pos_x;
+    odom_trans.transform.translation.y = pos_y;
+    odom_trans.transform.translation.z = 0.0;
+    odom_trans.transform.rotation.x = q.x();
+    odom_trans.transform.rotation.y = q.y();
+    odom_trans.transform.rotation.z = q.z();
+    odom_trans.transform.rotation.w = q.w();
+    odom_broadcaster.sendTransform(odom_trans);
+    
+    ROS_INFO("Published STM odom: x=%.3f, y=%.3f, yaw=%.3f, v=%.3f", 
+             pos_x, pos_y, ang_rad, v_linear);
+    
+    return true;
 }

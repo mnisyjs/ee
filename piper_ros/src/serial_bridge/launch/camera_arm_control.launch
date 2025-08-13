@@ -1,5 +1,4 @@
 <launch>
-    <!-- 相机模拟节点已移除 -->
 
     <!-- 先启动 MoveIt（加载 robot_description + move_group + joint_moveit_ctrl_server，无 RViz） -->
     <include file="$(find piper_with_gripper_moveit)/launch/demo.launch">
@@ -19,8 +18,6 @@
         <param name="orientation_tolerance" value="0.3" />
         <param name="optimal_distance" value="1.0" />
     </node>
-
-    <!-- 障碍检测模拟节点已移除 -->
 
     <!-- 可选：手眼标定节点 -->
     <node name="handeye_transform_node" pkg="eyes2hand" type="handeye_transform_node.py" output="screen" if="false">

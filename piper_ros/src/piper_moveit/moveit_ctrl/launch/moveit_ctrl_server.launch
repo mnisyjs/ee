@@ -1,0 +1,10 @@
+<?xml version="1.0"?>
+<launch>
+  <!-- 启动 MoveIt 控制服务节点 -->
+  <node name="joint_moveit_ctrl_server" pkg="moveit_ctrl" type="joint_moveit_ctrl_server.py" output="screen">
+    <!-- 可以在这里添加参数配置 -->
+  </node>
+  
+  <!-- 等待服务启动 -->
+  <node name="wait_for_services" pkg="rostopic" type="rostopic" args="echo /joint_moveit_ctrl_piper" output="screen" />
+</launch>

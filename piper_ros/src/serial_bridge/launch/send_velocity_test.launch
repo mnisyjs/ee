@@ -1,0 +1,18 @@
+<?xml version="1.0"?>
+<launch>
+	<arg name="com_name" default="/dev/ttyUSB0"/>
+	<arg name="vx" default="0.1"/>
+	<arg name="vy" default="0.1"/>
+	<arg name="wz" default="0.1"/>
+	<arg name="rate_hz" default="10"/>
+	<arg name="duration" default="3.0"/>
+
+	<node pkg="serial_bridge" type="test_send_velocity" name="stm32_velocity_test" output="screen">
+		<param name="com_name" value="$(arg com_name)"/>
+		<param name="vx" value="$(arg vx)"/>
+		<param name="vy" value="$(arg vy)"/>
+		<param name="wz" value="$(arg wz)"/>
+		<param name="rate_hz" value="$(arg rate_hz)"/>
+		<param name="duration" value="$(arg duration)"/>
+	</node>
+</launch>

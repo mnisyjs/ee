@@ -138,6 +138,7 @@ add_library(uart_module src/uart.cpp src/uart_Thread.cpp src/Queue_T.cpp)
 ## With catkin_make all packages are built within a single CMake context
 ## The recommended prefix ensures that target names across packages don't collide
 add_executable(main_node src/main.cpp)
+add_executable(test_send_velocity src/test_send_velocity.cpp)
 
 ## Rename C++ executable without prefix
 ## The above recommended prefix causes long target names, the following renames the
@@ -152,6 +153,11 @@ add_executable(main_node src/main.cpp)
 ## Specify libraries to link a library or executable target against
 target_link_libraries(main_node
   pid_controller
+  uart_module
+  ${catkin_LIBRARIES}
+)
+
+target_link_libraries(test_send_velocity
   uart_module
   ${catkin_LIBRARIES}
 )

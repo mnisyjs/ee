@@ -66,6 +66,14 @@ public:
     bool parseOdomData(const char* ascii_data);
 
     /**
+     * @brief 解析STM二进制数据
+     * @param data 二进制数据
+     * @param length 数据长度
+     * @return true if successfully parsed STM data
+     */
+    bool parseSTMData(const uint8_t* data, size_t length);
+ 
+    /**
      * @brief 任务发送串口模板函数
      * @note 模板函数不能在.h或.hpp中定义，再在.cpp中实现
      *
@@ -95,22 +103,6 @@ public:
 #endif
     }
 };
-
-/**
- * @brief 解析ASCII odom数据
- * @param ascii_data ASCII字符串数据
- * @return true if successfully parsed odom data
- */
- bool parseOdomData(const char* ascii_data);
-    
- /**
-  * @brief 解析STM二进制数据
-  * @param data 二进制数据
-  * @param length 数据长度
-  * @return true if successfully parsed STM data
-  */
- bool parseSTMData(const uint8_t* data, size_t length);
- 
 
 /**
  * @brief 存放一些任务发送串口线要用到的函数

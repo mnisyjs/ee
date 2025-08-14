@@ -35,6 +35,5 @@ include_directories(
 # 安装 Python 脚本
 catkin_install_python(PROGRAMS
   scripts/joint_moveit_ctrl_server.py
-  scripts/test_piper_service.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )

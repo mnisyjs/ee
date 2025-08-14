@@ -1,5 +1,10 @@
 <launch>
 
+    <include file="$(find armmu)/launch/display.launch">
+        <arg name="use_rviz" value="false" />
+        <arg name="use_joint_state_publisher" value="false" />
+    </include>
+
     <!-- 先启动 MoveIt（加载 robot_description + move_group + joint_moveit_ctrl_server，无 RViz） -->
     <include file="$(find piper_with_gripper_moveit)/launch/demo.launch">
         <arg name="use_rviz" value="false" />

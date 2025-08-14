@@ -58,6 +58,22 @@ ArmControlNode::ArmControlNode(ros::NodeHandle& nh) : nh_(nh), current_state_(ID
     nh_.param<double>("position_tolerance", position_tolerance_, 0.5);  // 位置容差
     nh_.param<double>("orientation_tolerance", orientation_tolerance_, 0.3); // 角度容差
     nh_.param<double>("optimal_distance", optimal_distance_, 1.0); // 最佳操作距离
+    // 新增：果篮计数与存储区位姿
+    nh_.param<int>("max_basket_count", max_basket_count_, 8);
+    basket_count_ = 0;
+    storage_pose_.header.frame_id = "map";
+    nh_.param<double>("storage_pose_x", storage_pose_.pose.position.x, 0.0);
+    nh_.param<double>("storage_pose_y", storage_pose_.pose.position.y, 0.0);
+    nh_.param<double>("storage_pose_yaw", storage_pose_.pose.orientation.z, 0.0); // 用 yaw 生成四元数
+    {
+        double yaw = storage_pose_.pose.orientation.z;
+        tf::Quaternion q;
+        q.setRPY(0, 0, yaw);
+        storage_pose_.pose.orientation.x = q.x();
+        storage_pose_.pose.orientation.y = q.y();
+        storage_pose_.pose.orientation.z = q.z();
+        storage_pose_.pose.orientation.w = q.w();
+    }
 
     ROS_INFO("ArmControlNode initialized with camera-based control.");
 }
@@ -371,6 +387,10 @@ void ArmControlNode::executeArmOperation() {
         
         current_state_ = PLACE_FRUIT;
         operateGripper("release");
+        // 放果完成后计数 +1，并在需要时启动倒果流程
+        basket_count_ += 1;
+        publishStatus("basket_count_" + std::to_string(basket_count_));
+        startDumpIfNeeded();
     }
 
     current_state_ = RETRACT;
@@ -462,6 +482,11 @@ std::string ArmControlNode::stateToString(State state) {
         case PLACE_FRUIT: return "PLACE_FRUIT";
         case RECOVER: return "RECOVER";
         case EMERGENCY_STOP: return "EMERGENCY_STOP";
+        case MOVE_TO_STORAGE: return "MOVE_TO_STORAGE";
+        case WAIT_FOR_STORAGE: return "WAIT_FOR_STORAGE";
+        case DUMP_FRUITS: return "DUMP_FRUITS";
+        case RETURN_TO_WORKSITE: return "RETURN_TO_WORKSITE";
+        case WAIT_FOR_RETURN: return "WAIT_FOR_RETURN";
         default: return "UNKNOWN";
     }
 }
@@ -544,4 +569,59 @@ int main(int argc, char** argv) {
     ArmControlNode node(nh);
     node.run();
     return 0;
+}
+
+// 新增：如达到阈值，触发倒果流程
+void ArmControlNode::startDumpIfNeeded() {
+    if (basket_count_ < max_basket_count_) {
+        return;
+    }
+    // 记录返回点为当前底盘位姿
+    return_pose_ = current_chassis_pose_;
+    // 发布去往存储区的目标
+    publishStatus("dump_triggered");
+    publishChassisTarget(storage_pose_);
+    current_state_ = MOVE_TO_STORAGE;
+    waiting_for_chassis_ = true;
+}
+
+void ArmControlNode::publishChassisTarget(const geometry_msgs::PoseStamped& pose) {
+    geometry_msgs::PoseStamped target = pose;
+    target.header.stamp = ros::Time::now();
+    pub_chassis_target_.publish(target);
+}
+
+// 在到达回调里衔接倒果状态机
+void ArmControlNode::chassisArrivalCallback(const std_msgs::Bool::ConstPtr& msg) {
+    chassis_arrived_ = msg->data;
+    if (chassis_arrived_) {
+        ROS_INFO("Chassis arrived at target position!");
+        waiting_for_chassis_ = false;
+
+        if (current_state_ == WAIT_FOR_CHASSIS) {
+            current_state_ = EXECUTE_ARM_OPERATION;
+            executeArmOperation();
+        } else if (current_state_ == MOVE_TO_STORAGE) {
+            current_state_ = WAIT_FOR_STORAGE;
+            // 简化：到位即执行倒果
+            performDumpFruits();
+        } else if (current_state_ == RETURN_TO_WORKSITE) {
+            current_state_ = WAIT_FOR_RETURN;
+            // 回到作业点，恢复为 IDLE，继续摄像头回调驱动任务
+            publishStatus("returned_to_worksite");
+            current_state_ = IDLE;
+        }
+    }
+}
+
+void ArmControlNode::performDumpFruits() {
+    publishStatus("dump_fruits_start");
+    // 这里可加入机械臂/执行器动作以倒果
+    // 简化：仅发布状态并清零计数
+    basket_count_ = 0;
+    publishStatus("dump_fruits_done");
+    // 返回原作业位姿
+    publishChassisTarget(return_pose_);
+    current_state_ = RETURN_TO_WORKSITE;
+    waiting_for_chassis_ = true;
 }

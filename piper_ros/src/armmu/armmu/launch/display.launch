@@ -1,6 +1,8 @@
 <launch>
   <arg
     name="model" />
+  <arg name="use_rviz" default="true"/>
+  <arg name="use_joint_state_publisher" default="true"/>
   <param
     name="robot_description"
     textfile="$(find armmu)/urdf/armmu.urdf" />
@@ -8,10 +10,7 @@
     name="joint_state_publisher_gui"
     pkg="joint_state_publisher_gui"
     type="joint_state_publisher_gui" />
-  <node
-    name="robot_state_publisher"
-    pkg="robot_state_publisher"
-    type="robot_state_publisher" />
+  <!-- <node name="robot_state_publisher" pkg="robot_state_publisher" type="robot_state_publisher" /> -->
   <node
     name="rviz"
     pkg="rviz"

@@ -47,11 +47,15 @@ private:
     std::vector<double> safe_joint_angles_;
     arm_control_node::CameraTargets current_camera_targets_;  // 当前相机目标（苹果+果树）
     geometry_msgs::PoseStamped current_chassis_pose_;  // 当前小车位置
+    geometry_msgs::PoseStamped storage_pose_;          // 果子存储区位姿
+    geometry_msgs::PoseStamped return_pose_;           // 倒果前的位置（用于返回）
     
     // 控制参数
     double position_tolerance_;      // 位置容差
     double orientation_tolerance_;   // 角度容差
     double optimal_distance_;        // 最佳操作距离
+    int basket_count_;               // 已放果次数统计
+    int max_basket_count_;           // 达到阈值后去倒果
     
     // 状态变量
     bool has_obstacle;
@@ -62,7 +66,8 @@ private:
     enum State {
         IDLE, EVALUATE_POSITION, MOVE_CHASSIS, WAIT_FOR_CHASSIS, 
         EXECUTE_ARM_OPERATION, MOVE_TO_FRUIT, CUT_FRUIT, RETRACT, 
-        MOVE_TO_BASKET, PLACE_FRUIT, RECOVER, EMERGENCY_STOP
+        MOVE_TO_BASKET, PLACE_FRUIT, RECOVER, EMERGENCY_STOP,
+        MOVE_TO_STORAGE, WAIT_FOR_STORAGE, DUMP_FRUITS, RETURN_TO_WORKSITE, WAIT_FOR_RETURN
     };
     State current_state_;
 
@@ -81,4 +86,9 @@ private:
     bool checkTreeCollisionRisk(const geometry_msgs::PoseStamped& apple_pos, 
                                const geometry_msgs::PoseStamped& tree_pos, 
                                const geometry_msgs::PoseStamped& chassis_pos);
+
+    // 倒果相关
+    void startDumpIfNeeded();
+    void publishChassisTarget(const geometry_msgs::PoseStamped& pose);
+    void performDumpFruits();
 };

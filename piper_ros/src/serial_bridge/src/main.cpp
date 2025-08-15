@@ -1,5 +1,6 @@
 #include <ros/ros.h>
 #include <geometry_msgs/PoseStamped.h>
+#include <nav_msgs/Odometry.h>
 #include <std_msgs/Bool.h>
 #include <std_msgs/String.h>
 #include <tf/tf.h>
@@ -14,6 +15,7 @@ private:
     ros::NodeHandle nh_;
     ros::Subscriber sub_target_pose_;      // 订阅目标位置
     ros::Subscriber sub_emergency_stop_;   // 订阅紧急停止
+    ros::Subscriber sub_odom_;             // 订阅里程计信息
     ros::Publisher pub_arrival_status_;    // 发布到位状态
     ros::Publisher pub_chassis_status_;    // 发布小车状态
     
@@ -27,12 +29,24 @@ private:
     // 状态变量
     bool is_moving_;
     bool is_emergency_stop_;
+    bool has_odom_data_;                   // 是否收到过里程计数据
     geometry_msgs::PoseStamped current_target_;
-    double position_tolerance_;  // 位置容差
-    double orientation_tolerance_; // 角度容差
+    nav_msgs::Odometry current_odom_;      // 当前里程计信息
+    
+    // 容差参数
+    double position_tolerance_;            // 位置容差
+    double orientation_tolerance_;         // 角度容差
     
 public:
-    ChassisControlNode() : is_moving_(false), is_emergency_stop_(false), position_tolerance_(0.1), orientation_tolerance_(0.1), pid_x(1.0, 0.0, 0.05, -0.5, 0.5), pid_y(1.0, 0.0, 0.05, -0.5, 0.5), pid_yaw(2.0, 0.0, 0.1, -1.0, 1.0)
+    ChassisControlNode() : 
+        is_moving_(false), 
+        is_emergency_stop_(false),
+        has_odom_data_(false),
+        position_tolerance_(0.1), 
+        orientation_tolerance_(0.1), 
+        pid_x(1.0, 0.0, 0.05, -0.5, 0.5), 
+        pid_y(1.0, 0.0, 0.05, -0.5, 0.5), 
+        pid_yaw(2.0, 0.0, 0.1, -1.0, 1.0)
     {
         // 获取参数
         std::string com_name;
@@ -45,8 +59,12 @@ public:
         uart_.Enable_Thread_Read_Uart();
         
         // 订阅话题
-        sub_target_pose_ = nh_.subscribe("/chassis/target_pose", 10, &ChassisControlNode::targetPoseCallback, this);
-        sub_emergency_stop_ = nh_.subscribe("/chassis/emergency_stop", 10, &ChassisControlNode::emergencyStopCallback, this);
+        sub_target_pose_ = nh_.subscribe("/chassis/target_pose", 10, 
+                                        &ChassisControlNode::targetPoseCallback, this);
+        sub_emergency_stop_ = nh_.subscribe("/chassis/emergency_stop", 10, 
+                                           &ChassisControlNode::emergencyStopCallback, this);
+        sub_odom_ = nh_.subscribe("/odom", 10, 
+                                 &ChassisControlNode::odomCallback, this);
         
         // 发布话题
         pub_arrival_status_ = nh_.advertise<std_msgs::Bool>("/chassis/arrival_status", 10);
@@ -58,6 +76,11 @@ public:
     
     ~ChassisControlNode() {
         uart_.Disable_Thread_Read_Uart();
+    }
+    
+    void odomCallback(const nav_msgs::Odometry::ConstPtr& msg) {
+        current_odom_ = *msg;
+        has_odom_data_ = true;
     }
     
     void targetPoseCallback(const geometry_msgs::PoseStamped::ConstPtr& msg) {
@@ -95,22 +118,38 @@ public:
         double target_x = target->pose.position.x;
         double target_y = target->pose.position.y;
         double target_yaw = tf::getYaw(target->pose.orientation);
-
-        // 这里可以添加当前位置获取逻辑（如果有里程计的话）
-        // 暂时使用简单的运动指令   
+        
+        // 如果有当前位置信息，使用PID计算速度
+        double vx = target_x;
+        double vy = target_y;
+        double vyaw = target_yaw;
+        
+        if (has_odom_data_) {
+            // 获取当前位置和朝向
+            double current_x = current_odom_.pose.pose.position.x;
+            double current_y = current_odom_.pose.pose.position.y;
+            double current_yaw = tf::getYaw(current_odom_.pose.pose.orientation);
+            
+            // 使用PID计算控制量
+            vx = pid_x.calculate(target_x, current_x);
+            vy = pid_y.calculate(target_y, current_y);
+            vyaw = pid_yaw.calculate(target_yaw, current_yaw);
+            
+            ROS_DEBUG("PID control: vx=%.3f, vy=%.3f, vyaw=%.3f", vx, vy, vyaw);
+        }
         
         // 限制速度范围在[-1.0, 1.0]之间
-        target_x = std::max(-1.0, std::min(1.0, target_x));
-        target_y = std::max(-1.0, std::min(1.0, target_y));
-        target_yaw = std::max(-1.0, std::min(1.0, target_yaw));
+        vx = std::max(-1.0, std::min(1.0, vx));
+        vy = std::max(-1.0, std::min(1.0, vy));
+        vyaw = std::max(-1.0, std::min(1.0, vyaw));
     
         // 发送运动指令到串口
         uart_.Mission_Send(Uart_Thread_Space::Lidar_Position, &uart_, 
-                          static_cast<float>(target_x), 
-                          static_cast<float>(target_y), 
-                          static_cast<float>(target_yaw));
+                          static_cast<float>(vx), 
+                          static_cast<float>(vy), 
+                          static_cast<float>(vyaw));
         
-        ROS_INFO("Sent movement command: vx=%.2f, vy=%.2f, vyaw=%.2f", target_x, target_y, target_yaw);
+        ROS_INFO("Sent movement command: vx=%.2f, vy=%.2f, vyaw=%.2f", vx, vy, vyaw);
     }
  
     void stopMovement() {
@@ -121,22 +160,35 @@ public:
     }
     
     void checkArrivalStatus() {
-        // 这里应该检查实际位置是否到达目标位置
-        // 暂时模拟到达状态
-        if (is_moving_) {
-            // 模拟一段时间后到达
-            static int check_count = 0;
-            check_count++;
-            if (check_count > 50) { // 大约5秒后到达
+        if (is_moving_ && has_odom_data_) {
+            // 获取当前位置和朝向
+            double current_x = current_odom_.pose.pose.position.x;
+            double current_y = current_odom_.pose.pose.position.y;
+            double current_yaw = tf::getYaw(current_odom_.pose.pose.orientation);
+            
+            // 获取目标位置和朝向
+            double target_x = current_target_.pose.position.x;
+            double target_y = current_target_.pose.position.y;
+            double target_yaw = tf::getYaw(current_target_.pose.orientation);
+            
+            // 计算位置和角度偏差
+            double dx = target_x - current_x;
+            double dy = target_y - current_y;
+            double dyaw = angles::shortest_angular_distance(current_yaw, target_yaw);
+            
+            double distance = sqrt(dx*dx + dy*dy);
+            
+            // 检查是否到达目标位置
+            if (distance < position_tolerance_ && fabs(dyaw) < orientation_tolerance_) {
                 is_moving_ = false;
-                check_count = 0;
                 
                 std_msgs::Bool arrival_msg;
                 arrival_msg.data = true;
                 pub_arrival_status_.publish(arrival_msg);
                 publishStatus("arrived");
                 
-                ROS_INFO("Target position reached!");
+                ROS_INFO("Target position reached! Distance=%.3f, Angle diff=%.3f rad", 
+                         distance, dyaw);
             }
         }
     }
@@ -166,4 +218,3 @@ int main(int argc, char **argv) {
     
     return 0;
 }
-

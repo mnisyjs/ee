@@ -13,6 +13,7 @@ find_package(catkin REQUIRED COMPONENTS
   geometry_msgs
   tf
   nav_msgs
+  angles
 )
 find_package(Eigen3 REQUIRED)
 ## System dependencies are found with CMake's conventions

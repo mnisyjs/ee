@@ -125,9 +125,6 @@ include_directories(
 )
 
 ## Declare a C++ library
-add_library(pid_controller 
-  src/pid_controller.cpp
-)
 add_library(uart_module src/uart.cpp src/uart_Thread.cpp src/Queue_T.cpp)
 
 ## Add cmake target dependencies of the library
@@ -153,7 +150,6 @@ add_executable(test_send_velocity src/test_send_velocity.cpp)
 
 ## Specify libraries to link a library or executable target against
 target_link_libraries(main_node
-  pid_controller
   uart_module
   ${catkin_LIBRARIES}
 )

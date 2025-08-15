@@ -4,7 +4,6 @@
 #include <std_msgs/Bool.h>
 #include <std_msgs/String.h>
 #include <tf/tf.h>
-#include "serial_bridge/pid_controller.h"
 #include "serial_bridge/uart.hpp"
 #include "serial_bridge/uart_Thread.hpp"
 #include "serial_bridge/Queue_T.hpp"
@@ -20,11 +19,6 @@ private:
     ros::Publisher pub_chassis_status_;    // 发布小车状态
     
     Uart_Thread uart_;
-    
-    // PID 控制器对象（用于精确位置控制）
-    PIDController pid_x;
-    PIDController pid_y;
-    PIDController pid_yaw;
     
     // 状态变量
     bool is_moving_;
@@ -43,10 +37,7 @@ public:
         is_emergency_stop_(false),
         has_odom_data_(false),
         position_tolerance_(0.1), 
-        orientation_tolerance_(0.1), 
-        pid_x(1.0, 0.0, 0.05, -0.5, 0.5), 
-        pid_y(1.0, 0.0, 0.05, -0.5, 0.5), 
-        pid_yaw(2.0, 0.0, 0.1, -1.0, 1.0)
+        orientation_tolerance_(0.1)
     {
         // 获取参数
         std::string com_name;
@@ -64,7 +55,7 @@ public:
         sub_emergency_stop_ = nh_.subscribe("/chassis/emergency_stop", 10, 
                                            &ChassisControlNode::emergencyStopCallback, this);
         sub_odom_ = nh_.subscribe("/odom", 10, 
-                                 &ChassisControlNode::odomCallback, this);
+                                  &ChassisControlNode::odomCallback, this);
         
         // 发布话题
         pub_arrival_status_ = nh_.advertise<std_msgs::Bool>("/chassis/arrival_status", 10);
@@ -119,7 +110,7 @@ public:
         double target_y = target->pose.position.y;
         double target_yaw = tf::getYaw(target->pose.orientation);
         
-        // 如果有当前位置信息，使用PID计算速度
+        // 如果有当前位置信息，计算相对运动速度
         double vx = target_x;
         double vy = target_y;
         double vyaw = target_yaw;
@@ -130,12 +121,12 @@ public:
             double current_y = current_odom_.pose.pose.position.y;
             double current_yaw = tf::getYaw(current_odom_.pose.pose.orientation);
             
-            // 使用PID计算控制量
-            vx = pid_x.calculate(target_x, current_x);
-            vy = pid_y.calculate(target_y, current_y);
-            vyaw = pid_yaw.calculate(target_yaw, current_yaw);
+            // 计算相对位置和角度
+            vx = target_x - current_x;
+            vy = target_y - current_y;
+            vyaw = angles::shortest_angular_distance(current_yaw, target_yaw);
             
-            ROS_DEBUG("PID control: vx=%.3f, vy=%.3f, vyaw=%.3f", vx, vy, vyaw);
+            ROS_DEBUG("Relative motion: vx=%.3f, vy=%.3f, vyaw=%.3f", vx, vy, vyaw);
         }
         
         // 限制速度范围在[-1.0, 1.0]之间

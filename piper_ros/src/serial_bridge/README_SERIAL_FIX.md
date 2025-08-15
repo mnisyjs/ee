@@ -24,7 +24,12 @@
 - 支持里程计、UWB、电机速度/位置等数据
 - 自动发布ROS里程计消息和TF变换
 
-### 4. 新增功能
+### 4. 运动控制简化
+- **移除PID控制器**：电机不需要PID控制，改为直接速度控制
+- 使用相对位置计算速度指令：`vx = target_x - current_x`
+- 简化控制逻辑，提高响应速度
+
+### 5. 新增功能
 - `publishOdomMessage()` 函数：发布里程计消息
 - 测试脚本：验证串口通信功能
 - 错误处理和日志记录
@@ -51,6 +56,29 @@ STM: [100字节数据] >ROS\r\n
 ```
 0x3F 0x21 0x01 [vx] [vy] [w] 0x00 0x21
 ```
+
+## 运动控制逻辑
+
+### 速度计算方式
+```cpp
+// 如果有当前位置信息，计算相对运动速度
+if (has_odom_data_) {
+    // 计算相对位置和角度
+    vx = target_x - current_x;
+    vy = target_y - current_y;
+    vyaw = angles::shortest_angular_distance(current_yaw, target_yaw);
+} else {
+    // 直接使用目标位置作为速度指令
+    vx = target_x;
+    vy = target_y;
+    vyaw = target_yaw;
+}
+```
+
+### 优势
+- **响应快速**：无需PID调节时间，直接响应
+- **控制简单**：逻辑清晰，易于调试
+- **资源占用少**：移除PID计算，减少CPU占用
 
 ## 使用方法
 
@@ -103,6 +131,7 @@ rostopic pub /chassis/emergency_stop std_msgs/Bool "data: true"
 ### 订阅话题
 - `/chassis/target_pose`: 目标位置 (geometry_msgs/PoseStamped)
 - `/chassis/emergency_stop`: 紧急停止 (std_msgs/Bool)
+- `/odom`: 里程计信息 (nav_msgs/Odometry)
 
 ### 发布话题
 - `/chassis/arrival_status`: 到达状态 (std_msgs/Bool)
@@ -126,7 +155,7 @@ rostopic pub /chassis/emergency_stop std_msgs/Bool "data: true"
 
 ### 3. 运动控制异常
 - 检查速度范围限制
-- 确认PID参数设置
+- 确认位置容差设置
 - 验证紧急停止功能
 
 ## 注意事项
@@ -135,9 +164,11 @@ rostopic pub /chassis/emergency_stop std_msgs/Bool "data: true"
 2. **错误处理**：添加适当的错误处理和恢复机制
 3. **性能优化**：根据实际需求调整数据更新频率
 4. **安全考虑**：确保紧急停止功能正常工作
+5. **速度控制**：由于移除了PID，速度指令直接对应目标位置，注意调整速度范围
 
 ## 版本历史
 
 - v1.0: 初始版本，修复基本通信问题
 - v1.1: 添加测试脚本和错误处理
 - v1.2: 优化数据解析和发布逻辑
+- v1.3: **移除PID控制器，改为直接速度控制**

@@ -95,10 +95,15 @@ public:
         double target_x = target->pose.position.x;
         double target_y = target->pose.position.y;
         double target_yaw = tf::getYaw(target->pose.orientation);
-        
+
         // 这里可以添加当前位置获取逻辑（如果有里程计的话）
-        // 暂时使用简单的运动指令
+        // 暂时使用简单的运动指令   
         
+        // 限制速度范围在[-1.0, 1.0]之间
+        target_x = std::max(-1.0, std::min(1.0, target_x));
+        target_y = std::max(-1.0, std::min(1.0, target_y));
+        target_yaw = std::max(-1.0, std::min(1.0, target_yaw));
+    
         // 发送运动指令到串口
         uart_.Mission_Send(Uart_Thread_Space::Lidar_Position, &uart_, 
                           static_cast<float>(target_x), 
@@ -107,7 +112,7 @@ public:
         
         ROS_INFO("Sent movement command: vx=%.2f, vy=%.2f, vyaw=%.2f", target_x, target_y, target_yaw);
     }
-    
+ 
     void stopMovement() {
         // 发送停止指令
         uart_.Mission_Send(Uart_Thread_Space::Lidar_Position, &uart_, 0.0f, 0.0f, 0.0f);

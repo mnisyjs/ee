@@ -84,18 +84,18 @@ void Uart::ShowWriteBuff()
 /**
  * @brief 清空writeBuff并加上头尾帧
  */
-void Uart::ClearWriteBuff()
-{
-    /*清空*/
-    memset(writeBuff, 0, sizeof(writeBuff));
-
-    /*头帧*/
-    writeBuff[0] = '?';
-    writeBuff[1] = '!';
-
-    /*尾帧*/
-    writeBuff[uart_length - 1] = '!';
-}
+ void Uart::ClearWriteBuff()
+ {
+     /* 清空缓冲区 */
+     memset(writeBuff, 0, sizeof(writeBuff));
+     
+     /* 设置固定帧头帧尾 (匹配STM32协议) */
+     writeBuff[0] = 0x3F;         // 包头1
+     writeBuff[1] = 0x21;         // 包头2
+     writeBuff[2] = 0x01;         // 任务ID
+     writeBuff[6] = 0x00;         // 保留位
+     writeBuff[7] = 0x21;         // 包尾
+ }
 
 /**
  * @brief 使用 select 函数堵塞,监听串口文件描述符的可读事件
@@ -135,9 +135,17 @@ int8_t Uart::GetAlignedFromQueue(uint8_t *pData)
     /*判断队列长度与数据帧长度*/
     while (uart_length <= readBuff_queue.size())
     {
-        if (readBuff_queue[0] == '?' &&
-            readBuff_queue[1] == '!' &&
-            readBuff_queue[uart_length - 1] == '!')
+        // 检查STM32发送的ASCII格式数据帧
+        if (readBuff_queue[0] == 'S' &&
+            readBuff_queue[1] == 'T' &&
+            readBuff_queue[2] == 'M' &&
+            readBuff_queue[3] == ':' &&
+            readBuff_queue[104] == '>' &&
+            readBuff_queue[105] == 'R' &&
+            readBuff_queue[106] == 'O' &&
+            readBuff_queue[107] == 'S' &&
+            readBuff_queue[108] == '\r' &&
+            readBuff_queue[109] == '\n')
         {
             /*队列中存在合法数据，赋值并返回*/
             for (uint8_t i = 0; i < uart_length; i++)

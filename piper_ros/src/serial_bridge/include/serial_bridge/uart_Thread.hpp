@@ -72,6 +72,17 @@ public:
      * @return true if successfully parsed STM data
      */
     bool parseSTMData(const uint8_t* data, size_t length);
+
+    /**
+     * @brief 发布里程计消息
+     * @param px X位置
+     * @param py Y位置
+     * @param ang 角度
+     * @param vx X速度
+     * @param vy Y速度
+     * @param w 角速度
+     */
+    void publishOdomMessage(float px, float py, float ang, float vx, float vy, float w);
  
     /**
      * @brief 任务发送串口模板函数

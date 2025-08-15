@@ -1,0 +1,43 @@
+void User_CommStmToRosSend(void)//
+{	
+	SMP.stm_ros.odom_px = MOVE.odometer.pos_x;
+	SMP.stm_ros.odom_py = MOVE.odometer.pos_y;
+	SMP.stm_ros.odom_ang = MOVE.odometer.ang_rad;
+	SMP.stm_ros.odom_vx = MOVE.odometer.v_x;
+	SMP.stm_ros.odom_vy = MOVE.odometer.v_y;
+	SMP.stm_ros.odom_womoga = MOVE.odometer.v_angular;
+	
+	SMP.stm_ros.uwb_px = UWB.tag.mesure_locate_x/100.0f;//m
+	SMP.stm_ros.uwb_py = UWB.tag.mesure_locate_y/100.0f;//m
+	
+	
+	SMP.stm_ros.spe_m1 = CHASS_MOTOR[0].flash.item.spe_now/_MOTOR_RATIO/60*6.2831852f;//rad/s
+	SMP.stm_ros.spe_m2 = CHASS_MOTOR[1].flash.item.spe_now/_MOTOR_RATIO/60*6.2831852f;
+	SMP.stm_ros.spe_m3 = CHASS_MOTOR[2].flash.item.spe_now/_MOTOR_RATIO/60*6.2831852f;
+	SMP.stm_ros.spe_m4 = CHASS_MOTOR[3].flash.item.spe_now/_MOTOR_RATIO/60*6.2831852f;
+	
+	SMP.stm_ros.pos_m1 =  CHASS_MOTOR[0].flash.item.pos_now/(_MOTOR_RATIO*_MOTOR_PPR)*6.2831852f;//rad
+	SMP.stm_ros.pos_m2 =  CHASS_MOTOR[1].flash.item.pos_now/(_MOTOR_RATIO*_MOTOR_PPR)*6.2831852f;
+	SMP.stm_ros.pos_m3 =  CHASS_MOTOR[2].flash.item.pos_now/(_MOTOR_RATIO*_MOTOR_PPR)*6.2831852f;
+	SMP.stm_ros.pos_m4 =  CHASS_MOTOR[3].flash.item.pos_now/(_MOTOR_RATIO*_MOTOR_PPR)*6.2831852f;
+	
+	
+	SMP.usart_tx_buf[0] = 'S';
+	SMP.usart_tx_buf[1] = 'T';
+	SMP.usart_tx_buf[2] = 'M';
+	SMP.usart_tx_buf[3] = ':';
+	
+	memcpy(&SMP.usart_tx_buf[4],&SMP.stm_ros,100);
+		
+	SMP.usart_tx_buf[104] = '>';
+	SMP.usart_tx_buf[105] = 'R';
+	SMP.usart_tx_buf[106] = 'O';
+	SMP.usart_tx_buf[107] = 'S';
+	SMP.usart_tx_buf[108] = '\r';
+	SMP.usart_tx_buf[109] = '\n';
+	
+	HAL_UART_Transmit_DMA(&USART_SMP_HUSART,(uint8_t*)SMP.usart_tx_buf,110);
+	
+//	sprintf((char*)SMP.usart_tx_buf,"odom:%.3f;%.3f;%.3f;%.3f;%.3f;\r\n",MOVE.odometer.pos_x,MOVE.odometer.pos_y,MOVE.odometer.ang_rad,MOVE.odometer.v_linear,MOVE.odometer.v_angular);	
+//	HAL_UART_Transmit_DMA(&USART_SMP_HUSART,(uint8_t*)SMP.usart_tx_buf,strlen((char*)SMP.usart_tx_buf));
+}

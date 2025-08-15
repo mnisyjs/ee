@@ -1,0 +1,45 @@
+# 机械臂示教角度配置文件
+# 用于存储各种操作位置的关节角度
+
+# 放果位置（采摘完果实后放置到果篮）
+place_fruit_position:
+  joint_angles: [0.0, -0.5, 0.0, -1.0, 0.0, 0.0]    # 示例放果角度
+  description: "采摘完果实后放置到果篮的位置"
+
+# 抓取果篮位置（抓取果篮准备倾倒）
+grab_basket_position:
+  joint_angles: [0.0, -0.8, 0.0, -1.2, 0.0, 0.0]    # 示例抓取角度
+  description: "抓取果篮准备倾倒的位置"
+
+# 倾倒果子位置（倾倒果篮中的果实）
+dump_fruit_position:
+  joint_angles: [0.0, -1.0, 0.0, -0.8, 0.0, 0.0]    # 示例倾倒角度
+  description: "倾倒果篮中果实的位置"
+
+# 果篮复原位置（果篮复位）
+basket_return_position:
+  # 粗定位角度（果篮大致放回位置）
+  rough_position:
+    joint_angles: [0.0, -0.6, 0.0, -1.1, 0.0, 0.0]  # 示例粗定位角度
+    description: "果篮粗定位位置"
+  
+  # 精确放回角度（果篮精确放回位置）
+  precise_position:
+    joint_angles: [0.0, -0.55, 0.0, -1.05, 0.0, 0.0] # 示例精确放回角度
+    description: "果篮精确放回位置"
+
+# 关节角度限制（弧度制）
+joint_limits:
+  joint1: [-2.618, 2.618]    # 关节1角度范围
+  joint2: [0, 3.14]    # 关节2角度范围
+  joint3: [-2.967, 0]    # 关节3角度范围
+  joint4: [-1.745, 1.745]    # 关节4角度范围
+  joint5: [-1.22, 1.22]    # 关节5角度范围
+  joint6: [-2.0944, 2.0944]    # 关节6角度范围
+
+# 运动参数
+motion_parameters:
+  default_velocity: 0.5        # 默认运动速度
+  default_acceleration: 0.5    # 默认加速度
+  safety_velocity: 0.3         # 安全运动速度
+  safety_acceleration: 0.3     # 安全加速度

@@ -110,6 +110,12 @@ catkin_package(
 # DEPENDS system_lib
 )
 
+catkin_install_python(PROGRAMS
+  scripts/fruit_position_node.py
+  scripts/handeye_transform.py
+  DESTINATION lib/${PROJECT_NAME}
+)
+
 ###########
 ## Build ##
 ###########

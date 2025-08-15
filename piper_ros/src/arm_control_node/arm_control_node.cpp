@@ -4,7 +4,7 @@
 #include <geometry_msgs/PoseStamped.h>
 #include <tf/tf.h>
 
-ArmControlNode::ArmControlNode(ros::NodeHandle& nh) : nh_(nh), current_state_(IDLE), has_obstacle(false), 
+ArmControlNode::ArmControlNode(ros::NodeHandle& nh) : nh_(nh), current_state_(IDLE), 
                                                      waiting_for_chassis_(false), chassis_arrived_(false) {
     // 订阅相机目标点位（苹果+果树）
     sub_camera_target_ = nh_.subscribe("/camera/targets", 10, &ArmControlNode::cameraTargetCallback, this);
@@ -18,19 +18,14 @@ ArmControlNode::ArmControlNode(ros::NodeHandle& nh) : nh_(nh), current_state_(ID
     // 发布当前任务状态
     pub_status_ = nh_.advertise<std_msgs::String>("/arm_control/status", 10);
     
-    // 订阅障碍检测节点消息
-    sub_vision_ = nh_.subscribe("/camera_obstacle", 1, &ArmControlNode::visionCallback, this);
-    
     // 订阅小车到位状态
     sub_chassis_arrival_ = nh_.subscribe("/chassis/arrival_status", 10, &ArmControlNode::chassisArrivalCallback, this);
-    sub_chassis_status_ = nh_.subscribe("/chassis/status", 10, &ArmControlNode::chassisStatusCallback, this);
     
     // 订阅里程计获取小车当前位置
     sub_odom_ = nh_.subscribe("/odom", 10, &ArmControlNode::odomCallback, this);
 
     // 发布小车运动指令
     pub_chassis_target_ = nh_.advertise<geometry_msgs::PoseStamped>("/chassis/target_pose", 10);
-    pub_emergency_stop_ = nh_.advertise<std_msgs::Bool>("/chassis/emergency_stop", 10);
 
     // 初始化服务客户端 - 使用piper规划组
     piper_client_ = nh_.serviceClient<moveit_ctrl::JointMoveitCtrl>("/joint_moveit_ctrl_piper");
@@ -75,6 +70,9 @@ ArmControlNode::ArmControlNode(ros::NodeHandle& nh) : nh_(nh), current_state_(ID
         storage_pose_.pose.orientation.w = q.w();
     }
 
+    // 从配置文件读取示教角度
+    loadTeachAngles();
+
     ROS_INFO("ArmControlNode initialized with camera-based control.");
 }
 
@@ -110,17 +108,11 @@ void ArmControlNode::handeyeCallback(const eyes2hand::HandEyeIK::ConstPtr& msg) 
         current_state_ = CUT_FRUIT;
         operateGripper("cut");
 
-        current_state_ = RETRACT;
-        retrieveToSavePoint(msg->joint_angles);
-
         current_state_ = MOVE_TO_BASKET;
-        moveToJointAngles(basket_joint_angles_);    
+        moveToJointAngles(place_fruit_joint_angles_);    
         
         current_state_ = PLACE_FRUIT;
         operateGripper("release");
-
-        current_state_ = RETRACT;
-        moveToJointAngles(safe_joint_angles_);
 
         current_state_ = IDLE;
         chassis_arrived_ = false; // 重置状态
@@ -141,16 +133,6 @@ void ArmControlNode::chassisArrivalCallback(const std_msgs::Bool::ConstPtr& msg)
             current_state_ = EXECUTE_ARM_OPERATION;
             executeArmOperation();
         }
-    }
-}
-
-void ArmControlNode::chassisStatusCallback(const std_msgs::String::ConstPtr& msg) {
-    ROS_INFO("Chassis status: %s", msg->data.c_str());
-    
-    if (msg->data == "emergency_stop") {
-        ROS_ERROR("Chassis emergency stop detected!");
-        current_state_ = EMERGENCY_STOP;
-        publishStatus("emergency_stop");
     }
 }
 
@@ -377,24 +359,18 @@ void ArmControlNode::executeArmOperation() {
     current_state_ = CUT_FRUIT;
     operateGripper("cut");
 
-    current_state_ = RETRACT;
-    retrieveToSavePoint(joint_angles);
-
-    // 移动到果篮位置（如果有的话）
-    if (!basket_joint_angles_.empty()) {
-        current_state_ = MOVE_TO_BASKET;
-        moveToJointAngles(basket_joint_angles_);    
-        
-        current_state_ = PLACE_FRUIT;
-        operateGripper("release");
-        // 放果完成后计数 +1，并在需要时启动倒果流程
-        basket_count_ += 1;
-        publishStatus("basket_count_" + std::to_string(basket_count_));
-        startDumpIfNeeded();
-    }
-
-    current_state_ = RETRACT;
-    moveToJointAngles(safe_joint_angles_);
+            // 移动到果篮位置（如果有的话）
+        if (!place_fruit_joint_angles_.empty()) {
+            current_state_ = MOVE_TO_BASKET;
+            moveToJointAngles(place_fruit_joint_angles_);    
+            
+            current_state_ = PLACE_FRUIT;
+            operateGripper("release");
+            // 放果完成后计数 +1，并在需要时启动倒果流程
+            basket_count_ += 1;
+            publishStatus("basket_count_" + std::to_string(basket_count_));
+            startDumpIfNeeded();
+        }
 
     current_state_ = IDLE;
     publishStatus("operation_complete");
@@ -481,7 +457,7 @@ std::string ArmControlNode::stateToString(State state) {
         case MOVE_TO_BASKET: return "MOVE_TO_BASKET";
         case PLACE_FRUIT: return "PLACE_FRUIT";
         case RECOVER: return "RECOVER";
-        case EMERGENCY_STOP: return "EMERGENCY_STOP";
+
         case MOVE_TO_STORAGE: return "MOVE_TO_STORAGE";
         case WAIT_FOR_STORAGE: return "WAIT_FOR_STORAGE";
         case DUMP_FRUITS: return "DUMP_FRUITS";
@@ -519,56 +495,8 @@ void ArmControlNode::checkAndPlanPath(const std::vector<double>& from, const std
     }
 }
 
-// 假设 joint_angles 是当前机械臂关节状态
-// safe_joint_angles 是撤回的目标关节角度
-void ArmControlNode::retrieveToSavePoint(const std::vector<double>& joint_angles) {
-    // 模拟视觉检测是否有障碍（未来可用视觉节点回调结果）
-    bool has_obstacle = detectObstacle(); // 这里用一个函数模拟，后面可用消息回调替换
-    
-    safe_joint_angles_ = joint_angles;
-
-    if (!has_obstacle) {
-        // 直接撤回到安全点
-        current_state_ = RETRACT;
-        moveToJointAngles(safe_joint_angles_);
-    } else {
-        ROS_WARN("Obstacle detected! Executing avoidance maneuver...");
-        // 假设joint6是末端旋转关节，向下转动30度（约0.52弧度）
-        if (safe_joint_angles_.size() >= 6) {
-            safe_joint_angles_[5] += 0.52; // 修改joint6角度，模拟避障
-        }
-        current_state_ = RETRACT;
-        moveToJointAngles(safe_joint_angles_);
-        ROS_INFO("Moved to avoidance point. Checking if obstacle cleared...");
-        // 此处可再次检测视觉画面是否清除障碍
-        // 若仍有障碍，可循环调整或报警
-    }
-}
-
-// 模拟障碍检测函数（后续替换为视觉节点消息回调结果）
-bool ArmControlNode::detectObstacle() {
-    // TODO: 替换为相机/视觉节点实际检测结果
-    // 这里先用参数或随机模拟
-    // 例如：return nh_.getParam("/vision/has_obstacle", false);
-    return has_obstacle; // 使用从视觉回调中获取的状态
-}
-
-// 障碍检测回调函数
-void ArmControlNode::visionCallback(const std_msgs::Bool::ConstPtr& msg) {
-    has_obstacle = msg->data;
-    ROS_INFO("Vision callback: obstacle detected = %s", has_obstacle ? "true" : "false");
-}
-
 void ArmControlNode::run() {
     ros::spin();
-}
-
-int main(int argc, char** argv) {
-    ros::init(argc, argv, "arm_control_node");
-    ros::NodeHandle nh("~");
-    ArmControlNode node(nh);
-    node.run();
-    return 0;
 }
 
 // 新增：如达到阈值，触发倒果流程
@@ -616,7 +544,7 @@ void ArmControlNode::chassisArrivalCallback(const std_msgs::Bool::ConstPtr& msg)
 
 void ArmControlNode::performDumpFruits() {
     publishStatus("dump_fruits_start");
-    // 这里可加入机械臂/执行器动作以倒果
+    // TODO 这里可加入机械臂/执行器动作以倒果
     // 简化：仅发布状态并清零计数
     basket_count_ = 0;
     publishStatus("dump_fruits_done");
@@ -624,4 +552,79 @@ void ArmControlNode::performDumpFruits() {
     publishChassisTarget(return_pose_);
     current_state_ = RETURN_TO_WORKSITE;
     waiting_for_chassis_ = true;
+}
+
+void ArmControlNode::loadTeachAngles() {
+    // 从配置文件读取示教角度
+    std::vector<double> temp_angles;
+    
+    // 读取放果位置角度
+    if (nh_.getParam("place_fruit_position/joint_angles", temp_angles)) {
+        place_fruit_joint_angles_ = temp_angles;
+        ROS_INFO("Loaded place fruit position angles: [%.2f, %.2f, %.2f, %.2f, %.2f, %.2f]", 
+                 place_fruit_joint_angles_[0], place_fruit_joint_angles_[1], place_fruit_joint_angles_[2],
+                 place_fruit_joint_angles_[3], place_fruit_joint_angles_[4], place_fruit_joint_angles_[5]);
+    } else {
+        // 设置默认放果角度
+        place_fruit_joint_angles_ = {0.0, -0.5, 0.0, -1.0, 0.0, 0.0};
+        ROS_WARN("Failed to load place fruit position angles, using defaults");
+    }
+    
+    // 读取抓取果篮位置角度
+    if (nh_.getParam("grab_basket_position/joint_angles", temp_angles)) {
+        grab_basket_joint_angles_ = temp_angles;
+        ROS_INFO("Loaded grab basket position angles: [%.2f, %.2f, %.2f, %.2f, %.2f, %.2f]", 
+                 grab_basket_joint_angles_[0], grab_basket_joint_angles_[1], grab_basket_joint_angles_[2],
+                 grab_basket_joint_angles_[3], grab_basket_joint_angles_[4], grab_basket_joint_angles_[5]);
+    } else {
+        // 设置默认抓取果篮角度
+        grab_basket_joint_angles_ = {0.0, -0.8, 0.0, -1.2, 0.0, 0.0};
+        ROS_WARN("Failed to load grab basket position angles, using defaults");
+    }
+    
+    // 读取倾倒果子位置角度
+    if (nh_.getParam("dump_fruit_position/joint_angles", temp_angles)) {
+        dump_fruit_joint_angles_ = temp_angles;
+        ROS_INFO("Loaded dump fruit position angles: [%.2f, %.2f, %.2f, %.2f, %.2f, %.2f]", 
+                 dump_fruit_joint_angles_[0], dump_fruit_joint_angles_[1], dump_fruit_joint_angles_[2],
+                 dump_fruit_joint_angles_[3], dump_fruit_joint_angles_[4], dump_fruit_joint_angles_[5]);
+    } else {
+        // 设置默认倾倒角度
+        dump_fruit_joint_angles_ = {0.0, -1.0, 0.0, -0.8, 0.0, 0.0};
+        ROS_WARN("Failed to load dump fruit position angles, using defaults");
+    }
+    
+    // 读取果篮粗定位角度
+    if (nh_.getParam("basket_return_position/rough_position/joint_angles", temp_angles)) {
+        basket_return_rough_angles_ = temp_angles;
+        ROS_INFO("Loaded basket return rough position angles: [%.2f, %.2f, %.2f, %.2f, %.2f, %.2f]", 
+                 basket_return_rough_angles_[0], basket_return_rough_angles_[1], basket_return_rough_angles_[2],
+                 basket_return_rough_angles_[3], basket_return_rough_angles_[4], basket_return_rough_angles_[5]);
+    } else {
+        // 设置默认粗定位角度
+        basket_return_rough_angles_ = {0.0, -0.6, 0.0, -1.1, 0.0, 0.0};
+        ROS_WARN("Failed to load basket return rough position angles, using defaults");
+    }
+    
+    // 读取果篮精确放回角度
+    if (nh_.getParam("basket_return_position/precise_position/joint_angles", temp_angles)) {
+        basket_return_precise_angles_ = temp_angles;
+        ROS_INFO("Loaded basket return precise position angles: [%.2f, %.2f, %.2f, %.2f, %.2f, %.2f]", 
+                 basket_return_precise_angles_[0], basket_return_precise_angles_[1], basket_return_precise_angles_[2],
+                 basket_return_precise_angles_[3], basket_return_precise_angles_[4], basket_return_precise_angles_[5]);
+    } else {
+        // 设置默认精确放回角度
+        basket_return_precise_angles_ = {0.0, -0.55, 0.0, -1.05, 0.0, 0.0};
+        ROS_WARN("Failed to load basket return precise position angles, using defaults");
+    }
+    
+    ROS_INFO("All teach angles loaded successfully.");
+}
+
+int main(int argc, char** argv) {
+    ros::init(argc, argv, "arm_control_node");
+    ros::NodeHandle nh("~");
+    ArmControlNode node(nh);
+    node.run();
+    return 0;
 }

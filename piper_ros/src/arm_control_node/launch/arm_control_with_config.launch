@@ -1,0 +1,29 @@
+<launch>
+    <!-- 加载示教角度配置文件 -->
+    <rosparam command="load" file="$(find arm_control_node)/config/teach_angles.yaml" />
+    
+    <!-- 启动机械臂控制节点 -->
+    <node name="arm_control_node" pkg="arm_control_node" type="arm_control_node" output="screen">
+        <!-- 位置容差参数 -->
+        <param name="position_tolerance" value="0.5" />
+        
+        <!-- 角度容差参数 -->
+        <param name="orientation_tolerance" value="0.3" />
+        
+        <!-- 最佳操作距离 -->
+        <param name="optimal_distance" value="1.0" />
+        
+        <!-- 果篮最大容量 -->
+        <param name="max_basket_count" value="8" />
+        
+        <!-- 存储区位置参数 -->
+        <param name="storage_pose_x" value="5.0" />
+        <param name="storage_pose_y" value="0.0" />
+        <param name="storage_pose_yaw" value="0.0" />
+    </node>
+    
+    <!-- 可选：启动RViz进行可视化 -->
+    <!--
+    <node name="rviz" pkg="rviz" type="rviz" args="-d $(find arm_control_node)/rviz/arm_control.rviz" />
+    -->
+</launch>

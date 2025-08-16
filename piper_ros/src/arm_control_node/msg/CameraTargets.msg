@@ -23,8 +23,5 @@ float32 red_confidence
 # 绿色果实置信度
 float32 green_confidence
 
-# 果树ID（用于跟踪多个果树）
-int32 tree_id
-
 # 置信度（相机检测的可靠性）
 float32 confidence

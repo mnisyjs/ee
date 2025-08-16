@@ -53,12 +53,10 @@ class HandEyeTransformNode(object):
             return
 
         # 4. 手眼变换：相机坐标系 -> 末端执行器坐标系
-        # 这里假设手眼外参已知，存储为4x4矩阵，或通过参数导入
-        # 例如：T_cam2ee = np.array([...]).reshape(4,4)
         T_cam2ee = self.get_handeye_matrix()
 
         # 相机目标位姿
-        T_base2obj = self.pose_to_matrix(msg.pose)
+        T_base2obj = self.pose_to_matrix(target_pose)
 
         # 末端目标位姿 = 基座到目标 * 目标到末端
         T_base2ee = np.dot(T_base2obj, np.linalg.inv(T_cam2ee))
@@ -77,10 +75,9 @@ class HandEyeTransformNode(object):
         rospy.loginfo("Published IK result.")
 
     def get_handeye_matrix(self):
-        # 示例：从参数服务器读取或硬编码手眼标定矩阵
-        # 实际开发请替换为你的标定结果（4x4）
-        # 例：T_cam2ee = np.eye(4)
-        return np.eye(4)  # TODO: 替换为实际手眼矩阵
+        # 从参数服务器读取或硬编码手眼标定矩阵
+        T_cam2ee = np.array([[1,0,0,-0.15],[0,1,0,0],[0,0,1,-0.05],[0,0,0,1]])
+        return T_cam2ee
 
     def pose_to_matrix(self, pose):
         # 将geometry_msgs/Pose转换为4x4变换矩阵

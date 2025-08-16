@@ -6,14 +6,11 @@
 
 ArmControlNode::ArmControlNode(ros::NodeHandle& nh) : nh_(nh), current_state_(IDLE), 
                                                      waiting_for_chassis_(false), chassis_arrived_(false) {
-    // 订阅相机目标点位（苹果+果树）
+    // 订阅相机目标点位（红色和绿色果实）
     sub_camera_target_ = nh_.subscribe("/camera/targets", 10, &ArmControlNode::cameraTargetCallback, this);
     
     // 订阅手眼变换节点消息（用于精确的机械臂控制）
     sub_handeye_ = nh_.subscribe("/handeye/ik_result", 10, &ArmControlNode::handeyeCallback, this);
-
-    // 订阅果篮示教角度（可选，如用配置文件则不用订阅）
-    sub_teach_basket_ = nh_.subscribe("/basket_teach_joints", 1, &ArmControlNode::teachBasketCallback, this);
 
     // 发布当前任务状态
     pub_status_ = nh_.advertise<std_msgs::String>("/arm_control/status", 10);
@@ -53,7 +50,7 @@ ArmControlNode::ArmControlNode(ros::NodeHandle& nh) : nh_(nh), current_state_(ID
     nh_.param<double>("position_tolerance", position_tolerance_, 0.5);  // 位置容差
     nh_.param<double>("orientation_tolerance", orientation_tolerance_, 0.3); // 角度容差
     nh_.param<double>("optimal_distance", optimal_distance_, 1.0); // 最佳操作距离
-    // 新增：果篮计数与存储区位姿
+    // 新增：果实计数与存储区位姿
     nh_.param<int>("max_basket_count", max_basket_count_, 8);
     basket_count_ = 0;
     storage_pose_.header.frame_id = "map";
@@ -70,30 +67,44 @@ ArmControlNode::ArmControlNode(ros::NodeHandle& nh) : nh_(nh), current_state_(ID
         storage_pose_.pose.orientation.w = q.w();
     }
 
+    // 从配置文件读取果树位置（用于安全避障）
+    loadTreePositions();
+
     // 从配置文件读取示教角度
     loadTeachAngles();
 
-    ROS_INFO("ArmControlNode initialized with camera-based control.");
+    ROS_INFO("ArmControlNode initialized with red apple collection and green apple avoidance.");
 }
 
 void ArmControlNode::cameraTargetCallback(const arm_control_node::CameraTargets::ConstPtr& msg) {
-    ROS_INFO("Received camera targets: apple(%.2f,%.2f,%.2f), tree(%.2f,%.2f,%.2f), type=%s", 
-             msg->apple_pose.pose.position.x, msg->apple_pose.pose.position.y, msg->apple_pose.pose.position.z,
-             msg->tree_pose.pose.position.x, msg->tree_pose.pose.position.y, msg->tree_pose.pose.position.z,
+    ROS_INFO("Received camera targets: red_apple(%.2f,%.2f,%.2f), green_apple(%.2f,%.2f,%.2f), type=%s", 
+             msg->red_apple_pose.pose.position.x, msg->red_apple_pose.pose.position.y, msg->red_apple_pose.pose.position.z,
+             msg->green_apple_pose.pose.position.x, msg->green_apple_pose.pose.position.y, msg->green_apple_pose.pose.position.z,
              msg->target_type.c_str());
     
     current_camera_targets_ = *msg;
-    current_state_ = EVALUATE_POSITION;
     
-    // 评估当前位置是否适合操作
-    if (evaluatePosition(msg)) {
-        ROS_INFO("Current position is suitable for operation.");
-        current_state_ = EXECUTE_ARM_OPERATION;
-        executeArmOperation();
+    // 检查是否有红色果实需要采集
+    if (msg->target_type == "red_apple" || msg->target_type == "both") {
+        if (msg->red_confidence > 0.7) { // 置信度阈值
+            current_state_ = EVALUATE_POSITION;
+            
+            // 评估当前位置是否适合操作红色果实
+            if (evaluatePositionForRedApple(msg)) {
+                ROS_INFO("Current position is suitable for red apple collection.");
+                current_state_ = EXECUTE_ARM_OPERATION;
+                executeArmOperation();
+            } else {
+                ROS_INFO("Current position is not suitable. Planning chassis movement.");
+                current_state_ = MOVE_CHASSIS;
+                planChassisMovementForRedApple(msg);
+            }
+        } else {
+            ROS_WARN("Red apple confidence too low: %.2f", msg->red_confidence);
+        }
     } else {
-        ROS_INFO("Current position is not suitable. Planning chassis movement.");
-        current_state_ = MOVE_CHASSIS;
-        planChassisMovement(msg);
+        ROS_INFO("No red apple detected, staying in IDLE state.");
+        current_state_ = IDLE;
     }
 }
 
@@ -148,49 +159,53 @@ void ArmControlNode::odomCallback(const nav_msgs::Odometry::ConstPtr& msg) {
              tf::getYaw(current_chassis_pose_.pose.orientation));
 }
 
-bool ArmControlNode::evaluatePosition(const arm_control_node::CameraTargets::ConstPtr& targets) {
+bool ArmControlNode::evaluatePositionForRedApple(const arm_control_node::CameraTargets::ConstPtr& targets) {
+    /**
+     * 评估当前位置是否适合采集红色果实
+     * 综合检查距离、角度、安全避障等条件
+     */
     
     // 获取当前小车位置（x, y坐标）
     double chassis_x = current_chassis_pose_.pose.position.x;
     double chassis_y = current_chassis_pose_.pose.position.y;
     double chassis_yaw = tf::getYaw(current_chassis_pose_.pose.orientation);
     
-    // 获取目标苹果位置
-    double apple_x = targets->apple_pose.pose.position.x;
-    double apple_y = targets->apple_pose.pose.position.y;
+    // 获取目标红色果实位置
+    double red_apple_x = targets->red_apple_pose.pose.position.x;
+    double red_apple_y = targets->red_apple_pose.pose.position.y;
     
-    // 计算小车与苹果的距离
-    double distance_to_apple = std::sqrt(
-        std::pow(apple_x - chassis_x, 2) + 
-        std::pow(apple_y - chassis_y, 2)
+    // 计算小车与红色果实的距离
+    double distance_to_red_apple = std::sqrt(
+        std::pow(red_apple_x - chassis_x, 2) + 
+        std::pow(red_apple_y - chassis_y, 2)
     );
     
-    ROS_INFO("Position evaluation: chassis(%.2f,%.2f), apple(%.2f,%.2f), distance=%.2f, optimal=%.2f", 
-             chassis_x, chassis_y, apple_x, apple_y, distance_to_apple, optimal_distance_);
+    ROS_INFO("Position evaluation for red apple: chassis(%.2f,%.2f), red_apple(%.2f,%.2f), distance=%.2f, optimal=%.2f", 
+             chassis_x, chassis_y, red_apple_x, red_apple_y, distance_to_red_apple, optimal_distance_);
     
     // 检查距离是否在合适范围内
-    if (std::abs(distance_to_apple - optimal_distance_) < position_tolerance_) {
-        // 计算从小车到苹果的角度
-        double angle_to_apple = std::atan2(apple_y - chassis_y, apple_x - chassis_x);
+    if (std::abs(distance_to_red_apple - optimal_distance_) < position_tolerance_) {
+        // 计算从小车到红色果实的角度
+        double angle_to_red_apple = std::atan2(red_apple_y - chassis_y, red_apple_x - chassis_x);
         
-        // 计算角度差（小车朝向与苹果方向的差异）
-        double angle_diff = std::abs(chassis_yaw - angle_to_apple);
+        // 计算角度差（小车朝向与红色果实方向的差异）
+        double angle_diff = std::abs(chassis_yaw - angle_to_red_apple);
         // 处理角度跨越问题（-π到π）
         if (angle_diff > M_PI) {
             angle_diff = 2 * M_PI - angle_diff;
         }
         
-        ROS_INFO("Angle evaluation: chassis_yaw=%.2f, apple_angle=%.2f, diff=%.2f, tolerance=%.2f", 
-                 chassis_yaw, angle_to_apple, angle_diff, orientation_tolerance_);
+        ROS_INFO("Angle evaluation: chassis_yaw=%.2f, red_apple_angle=%.2f, diff=%.2f, tolerance=%.2f", 
+                 chassis_yaw, angle_to_red_apple, angle_diff, orientation_tolerance_);
         
         // 检查角度是否合适
         if (angle_diff < orientation_tolerance_) {
-            // 检查是否存在与果树碰撞的风险
-            if (!checkTreeCollisionRisk(targets->apple_pose, targets->tree_pose, current_chassis_pose_)) {
-                ROS_INFO("Position is suitable for operation!");
+            // 综合安全检查（绿色果实避障 + 果树避障）
+            if (checkSafetyForRedApple(targets, current_chassis_pose_)) {
+                ROS_INFO("Position is suitable for red apple collection!");
                 return true;
             } else {
-                ROS_INFO("Tree collision risk detected, position not suitable.");
+                ROS_INFO("Safety check failed, position not suitable.");
             }
         } else {
             ROS_INFO("Angle not suitable, chassis needs to rotate.");
@@ -202,22 +217,117 @@ bool ArmControlNode::evaluatePosition(const arm_control_node::CameraTargets::Con
     return false;
 }
 
-void ArmControlNode::planChassisMovement(const arm_control_node::CameraTargets::ConstPtr& targets) {
+bool ArmControlNode::checkSafetyForRedApple(const arm_control_node::CameraTargets::ConstPtr& targets, 
+                                            const geometry_msgs::PoseStamped& chassis_pos) {
     /**
-     * planChassisMovement方法的改进逻辑：
-     * 1. 计算从苹果位置出发的多个候选位置
-     * 2. 检查每个候选位置是否会导致与果树碰撞
-     * 3. 选择距离果树最远且满足操作要求的位置
-     * 4. 如果所有位置都有碰撞风险，放弃当前苹果
+     * 综合安全检查：绿色果实避障 + 果树避障
+     * 合并了原来的checkGreenAppleCollisionRisk和checkTreeCollisionRisk功能
      */
     
-    geometry_msgs::PoseStamped apple_pos = targets->apple_pose;
-    geometry_msgs::PoseStamped tree_pos = targets->tree_pose;
+    double chassis_x = chassis_pos.pose.position.x;
+    double chassis_y = chassis_pos.pose.position.y;
     
-    double apple_x = apple_pos.pose.position.x;
-    double apple_y = apple_pos.pose.position.y;
+    double red_apple_x = targets->red_apple_pose.pose.position.x;
+    double red_apple_y = targets->red_apple_pose.pose.position.y;
     
-    // 生成多个候选位置（围绕苹果的圆周）
+    // 计算小车到红色果实的距离
+    double distance_to_red_apple = std::sqrt(
+        std::pow(red_apple_x - chassis_x, 2) + 
+        std::pow(red_apple_y - chassis_y, 2)
+    );
+    
+    // 1. 检查绿色果实避障
+    if (targets->target_type != "red_apple" && targets->green_apple_pose.pose.position.x != 0.0) {
+        double green_apple_x = targets->green_apple_pose.pose.position.x;
+        double green_apple_y = targets->green_apple_pose.pose.position.y;
+        
+        double distance_to_green = std::sqrt(
+            std::pow(green_apple_x - chassis_x, 2) + 
+            std::pow(green_apple_y - chassis_y, 2)
+        );
+        
+        // 绿色果实安全余量（80cm，确保不接触）
+        double green_safety_margin = 0.8;
+        
+        // 如果绿色果实距离太近，认为有碰撞风险
+        if (distance_to_green < (distance_to_red_apple + green_safety_margin)) {
+            ROS_WARN("Green apple collision risk detected: green apple too close to operation area");
+            return false;
+        }
+        
+        // 检查绿色果实是否在机械臂操作路径上
+        double cross_product = std::abs(
+            (green_apple_x - chassis_x) * (red_apple_y - chassis_y) - 
+            (green_apple_y - chassis_y) * (red_apple_x - chassis_x)
+        );
+        double line_distance = cross_product / distance_to_red_apple;
+        
+        if (line_distance < green_safety_margin && 
+            ((green_apple_x - chassis_x) * (red_apple_x - chassis_x) + 
+             (green_apple_y - chassis_y) * (red_apple_y - chassis_y)) > 0) {
+            ROS_WARN("Green apple collision risk detected: green apple is near the arm operation path");
+            return false;
+        }
+        
+        // 检查绿色果实是否在红色果实的采集范围内
+        double distance_between_apples = std::sqrt(
+            std::pow(red_apple_x - green_apple_x, 2) + 
+            std::pow(red_apple_y - green_apple_y, 2)
+        );
+        
+        if (distance_between_apples < green_safety_margin) {
+            ROS_WARN("Green apple collision risk detected: green apple too close to red apple");
+            return false;
+        }
+    }
+    
+    // 2. 检查果树避障
+    double tree_safety_margin = 0.5; // 50cm 安全余量
+    for (const auto& tree : tree_positions_) {
+        double tree_x = tree.pose.position.x;
+        double tree_y = tree.pose.position.y;
+        
+        double distance_to_tree = std::sqrt(
+            std::pow(tree_x - chassis_x, 2) + 
+            std::pow(tree_y - chassis_y, 2)
+        );
+        
+        // 如果小车距离果树太近，认为有碰撞风险
+        if (distance_to_tree < (distance_to_red_apple + tree_safety_margin)) {
+            ROS_DEBUG("Tree collision risk detected: tree too close to chassis or in arm path");
+            return false;
+        }
+        
+        // 检查果树是否在机械臂操作路径上
+        double cross_product = std::abs(
+            (tree_x - chassis_x) * (red_apple_y - chassis_y) - 
+            (tree_y - chassis_y) * (red_apple_x - chassis_x)
+        );
+        double line_distance = cross_product / distance_to_red_apple;
+        
+        if (line_distance < tree_safety_margin && 
+            ((tree_x - chassis_x) * (red_apple_x - chassis_x) + 
+             (tree_y - chassis_y) * (red_apple_y - chassis_y)) > 0) {
+            ROS_DEBUG("Tree collision risk detected: tree is near the arm operation path");
+            return false;
+        }
+    }
+    
+    return true; // 所有安全检查通过
+}
+
+void ArmControlNode::planChassisMovementForRedApple(const arm_control_node::CameraTargets::ConstPtr& targets) {
+    /**
+     * 为红色果实采集规划小车移动
+     * 选择最安全的位置，避免与绿色果实和果树碰撞
+     */
+    
+    geometry_msgs::PoseStamped red_apple_pos = targets->red_apple_pose;
+    
+    double red_apple_x = red_apple_pos.pose.position.x;
+    double red_apple_y = red_apple_pos.pose.position.y;
+    
+    // 生成多个候选位置（围绕红色果实的圆周）
     std::vector<geometry_msgs::PoseStamped> candidate_positions;
     int num_candidates = 8; // 8个方向
     
@@ -225,15 +335,15 @@ void ArmControlNode::planChassisMovement(const arm_control_node::CameraTargets::
         double angle = (2.0 * M_PI * i) / num_candidates;
         
         geometry_msgs::PoseStamped chassis_target;
-        chassis_target.header.frame_id = apple_pos.header.frame_id;
+        chassis_target.header.frame_id = red_apple_pos.header.frame_id;
         chassis_target.header.stamp = ros::Time::now();
         
         // 计算候选位置（在最佳距离处）
-        chassis_target.pose.position.x = apple_x - optimal_distance_ * std::cos(angle);
-        chassis_target.pose.position.y = apple_y - optimal_distance_ * std::sin(angle);
+        chassis_target.pose.position.x = red_apple_x - optimal_distance_ * std::cos(angle);
+        chassis_target.pose.position.y = red_apple_y - optimal_distance_ * std::sin(angle);
         chassis_target.pose.position.z = 0.0;
         
-        // 设置朝向（面向苹果）
+        // 设置朝向（面向红色果实）
         tf::Quaternion q;
         q.setRPY(0, 0, angle);
         chassis_target.pose.orientation.x = q.x();
@@ -244,22 +354,19 @@ void ArmControlNode::planChassisMovement(const arm_control_node::CameraTargets::
         candidate_positions.push_back(chassis_target);
     }
     
-    // 选择最佳位置（距离果树最远且无碰撞风险的位置）
+    // 选择最佳位置（通过安全检查且最安全的位置）
     geometry_msgs::PoseStamped best_position;
-    double max_tree_distance = -1.0;
+    double max_safety_score = -1.0;
     bool found_safe_position = false;
     
     for (const auto& candidate : candidate_positions) {
-        // 检查是否与果树有碰撞风险
-        if (!checkTreeCollisionRisk(apple_pos, tree_pos, candidate)) {
-            // 计算候选位置与果树的距离
-            double tree_distance = std::sqrt(
-                std::pow(candidate.pose.position.x - tree_pos.pose.position.x, 2) +
-                std::pow(candidate.pose.position.y - tree_pos.pose.position.y, 2)
-            );
+        // 使用综合安全检查方法
+        if (checkSafetyForRedApple(targets, candidate)) {
+            // 计算安全评分（综合考虑距离绿色果实和果树的远近）
+            double safety_score = calculateSafetyScore(targets, candidate);
             
-            if (tree_distance > max_tree_distance) {
-                max_tree_distance = tree_distance;
+            if (safety_score > max_safety_score) {
+                max_safety_score = safety_score;
                 best_position = candidate;
                 found_safe_position = true;
             }
@@ -267,8 +374,8 @@ void ArmControlNode::planChassisMovement(const arm_control_node::CameraTargets::
     }
     
     if (found_safe_position) {
-        ROS_INFO("Found safe chassis position: x=%.2f, y=%.2f, distance_to_tree=%.2f", 
-                 best_position.pose.position.x, best_position.pose.position.y, max_tree_distance);
+        ROS_INFO("Found safe chassis position: x=%.2f, y=%.2f, safety_score=%.2f", 
+                 best_position.pose.position.x, best_position.pose.position.y, max_safety_score);
         
         // 发布小车运动指令
         pub_chassis_target_.publish(best_position);
@@ -277,77 +384,61 @@ void ArmControlNode::planChassisMovement(const arm_control_node::CameraTargets::
         waiting_for_chassis_ = true;
         publishStatus("waiting_for_chassis");
     } else {
-        ROS_WARN("No safe position found for apple at (%.2f, %.2f). Skipping this apple due to tree collision risk.", 
-                 apple_x, apple_y);
+        ROS_WARN("No safe position found for red apple at (%.2f, %.2f). Skipping this apple due to collision risk.", 
+                 red_apple_x, red_apple_y);
         
         current_state_ = IDLE;
-        publishStatus("apple_skipped_collision_risk");
+        publishStatus("red_apple_skipped_collision_risk");
     }
 }
 
-bool ArmControlNode::checkTreeCollisionRisk(const geometry_msgs::PoseStamped& apple_pos, 
-                                           const geometry_msgs::PoseStamped& tree_pos, 
+double ArmControlNode::calculateSafetyScore(const arm_control_node::CameraTargets::ConstPtr& targets, 
                                            const geometry_msgs::PoseStamped& chassis_pos) {
     /**
-     * 检查从指定小车位置操作苹果时是否有与果树碰撞的风险
-     * 逻辑：如果小车距离果树的距离小于小车距离苹果的距离，则认为有碰撞风险
+     * 计算指定小车位置的安全评分
+     * 评分越高表示位置越安全
      */
+    double safety_score = 0.0;
     
     double chassis_x = chassis_pos.pose.position.x;
     double chassis_y = chassis_pos.pose.position.y;
     
-    double apple_x = apple_pos.pose.position.x;
-    double apple_y = apple_pos.pose.position.y;
-    
-    double tree_x = tree_pos.pose.position.x;
-    double tree_y = tree_pos.pose.position.y;
-    
-    // 计算小车到苹果的距离
-    double distance_to_apple = std::sqrt(
-        std::pow(apple_x - chassis_x, 2) + 
-        std::pow(apple_y - chassis_y, 2)
-    );
-    
-    // 计算小车到果树的距离
-    double distance_to_tree = std::sqrt(
-        std::pow(tree_x - chassis_x, 2) + 
-        std::pow(tree_y - chassis_y, 2)
-    );
-    
-    // 设置安全余量（机械臂操作时需要的额外空间）
-    double safety_margin = 0.5; // 50cm 安全余量
-    
-    ROS_DEBUG("Collision check: chassis(%.2f,%.2f), apple_dist=%.2f, tree_dist=%.2f, margin=%.2f", 
-              chassis_x, chassis_y, distance_to_apple, distance_to_tree, safety_margin);
-    
-    // 如果小车距离果树太近，或者机械臂操作路径可能经过果树附近，则认为有碰撞风险
-    if (distance_to_tree < (distance_to_apple + safety_margin)) {
-        ROS_DEBUG("Tree collision risk detected: tree too close to chassis or in arm path");
-        return true;
+    // 计算与绿色果实的安全距离评分
+    if (targets->target_type != "red_apple" && targets->green_apple_pose.pose.position.x != 0.0) {
+        double green_apple_x = targets->green_apple_pose.pose.position.x;
+        double green_apple_y = targets->green_apple_pose.pose.position.y;
+        
+        double distance_to_green = std::sqrt(
+            std::pow(green_apple_x - chassis_x, 2) + 
+            std::pow(green_apple_y - chassis_y, 2)
+        );
+        
+        // 距离越远，安全评分越高
+        safety_score += std::min(distance_to_green / 5.0, 1.0); // 归一化到0-1
     }
     
-    // 检查苹果、小车、果树三点的几何关系
-    // 如果果树在小车到苹果的直线路径附近，也认为有风险
-    double cross_product = std::abs(
-        (tree_x - chassis_x) * (apple_y - chassis_y) - 
-        (tree_y - chassis_y) * (apple_x - chassis_x)
-    );
-    double line_distance = cross_product / distance_to_apple;
-    
-    if (line_distance < safety_margin && 
-        ((tree_x - chassis_x) * (apple_x - chassis_x) + (tree_y - chassis_y) * (apple_y - chassis_y)) > 0) {
-        ROS_DEBUG("Tree collision risk detected: tree is near the arm operation path");
-        return true;
+    // 计算与果树的安全距离评分
+    for (const auto& tree : tree_positions_) {
+        double tree_x = tree.pose.position.x;
+        double tree_y = tree.pose.position.y;
+        
+        double distance_to_tree = std::sqrt(
+            std::pow(tree_x - chassis_x, 2) + 
+            std::pow(tree_y - chassis_y, 2)
+        );
+        
+        // 距离越远，安全评分越高
+        safety_score += std::min(distance_to_tree / 3.0, 1.0); // 归一化到0-1
     }
     
-    return false;
+    return safety_score;
 }
 
 void ArmControlNode::executeArmOperation() {
-    ROS_INFO("Executing arm operation for target at: x=%.2f, y=%.2f, z=%.2f", 
-             current_camera_targets_.apple_pose.pose.position.x, 
-             current_camera_targets_.apple_pose.pose.position.y, 
-             current_camera_targets_.apple_pose.pose.position.z);
+    ROS_INFO("Executing arm operation for red apple at: x=%.2f, y=%.2f, z=%.2f", 
+             current_camera_targets_.red_apple_pose.pose.position.x, 
+             current_camera_targets_.red_apple_pose.pose.position.y, 
+             current_camera_targets_.red_apple_pose.pose.position.z);
     
     // 这里可以调用手眼标定或其他算法来计算精确的关节角度
     // 暂时使用简单的示例角度
@@ -359,7 +450,7 @@ void ArmControlNode::executeArmOperation() {
     current_state_ = CUT_FRUIT;
     operateGripper("cut");
 
-            // 移动到果篮位置（如果有的话）
+        // 移动到果篮位置（如果有的话）
         if (!place_fruit_joint_angles_.empty()) {
             current_state_ = MOVE_TO_BASKET;
             moveToJointAngles(place_fruit_joint_angles_);    
@@ -552,6 +643,49 @@ void ArmControlNode::performDumpFruits() {
     publishChassisTarget(return_pose_);
     current_state_ = RETURN_TO_WORKSITE;
     waiting_for_chassis_ = true;
+}
+
+void ArmControlNode::loadTreePositions() {
+    // 从配置文件读取果树位置
+    XmlRpc::XmlRpcValue tree_poses;
+    if (nh_.getParam("tree_positions", tree_poses)) {
+        if (tree_poses.getType() == XmlRpc::XmlRpcValue::TypeArray) {
+            for (int i = 0; i < tree_poses.size(); ++i) {
+                if (tree_poses[i].getType() == XmlRpc::XmlRpcValue::TypeStruct) {
+                    geometry_msgs::PoseStamped tree_pose;
+                    tree_pose.header.frame_id = "map"; // 假设所有果树都在地图坐标系下
+                    tree_pose.header.stamp = ros::Time::now();
+                    
+                    if (tree_poses[i]["x"].getType() == XmlRpc::XmlRpcValue::TypeDouble) {
+                        tree_pose.pose.position.x = static_cast<double>(tree_poses[i]["x"]);
+                    }
+                    if (tree_poses[i]["y"].getType() == XmlRpc::XmlRpcValue::TypeDouble) {
+                        tree_pose.pose.position.y = static_cast<double>(tree_poses[i]["y"]);
+                    }
+                    if (tree_poses[i]["z"].getType() == XmlRpc::XmlRpcValue::TypeDouble) {
+                        tree_pose.pose.position.z = static_cast<double>(tree_poses[i]["z"]);
+                    }
+                    
+                    if (tree_poses[i]["yaw"].getType() == XmlRpc::XmlRpcValue::TypeDouble) {
+                        double yaw = static_cast<double>(tree_poses[i]["yaw"]);
+                        tf::Quaternion q;
+                        q.setRPY(0, 0, yaw);
+                        tree_pose.pose.orientation.x = q.x();
+                        tree_pose.pose.orientation.y = q.y();
+                        tree_pose.pose.orientation.z = q.z();
+                        tree_pose.pose.orientation.w = q.w();
+                    }
+                    tree_positions_.push_back(tree_pose);
+                    ROS_INFO("Loaded tree position %d: x=%.2f, y=%.2f, yaw=%.2f", i, 
+                             tree_pose.pose.position.x, tree_pose.pose.position.y, tf::getYaw(tree_pose.pose.orientation));
+                }
+            }
+        } else {
+            ROS_WARN("tree_positions parameter is not an array.");
+        }
+    } else {
+        ROS_WARN("tree_positions parameter not found in the parameter server.");
+    }
 }
 
 void ArmControlNode::loadTeachAngles() {

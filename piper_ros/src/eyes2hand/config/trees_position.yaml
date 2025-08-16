@@ -1,0 +1,86 @@
+# 果树位置配置文件
+# 可以从地图文件或GPS坐标中获取这些位置信息
+
+fruit_trees:
+  # 果树1
+  tree_1:
+    id: 1
+    name: "苹果树1"
+    position:
+      x: 2.5
+      y: 1.25
+      z: 0.0
+    orientation:
+      yaw: 0.0  # 弧度制
+    height: 0.7  # 树高（米）
+    fruit_zone:
+      min_height: 0.315   # 果实区域最小高度
+      max_height: 0.8   # 果实区域最大高度
+
+  # 果树2
+  tree_2:
+    id: 2
+    name: "苹果树2"
+    position:
+      x: 2.5
+      y: 2.75
+      z: 0.0
+    orientation:
+      yaw: 0.0  # 弧度制
+    height: 0.7  # 树高（米）
+    fruit_zone:
+      min_height: 0.315   # 果实区域最小高度
+      max_height: 0.8   # 果实区域最大高度
+
+  # 果树3
+  tree_3:
+    id: 3
+    name: "苹果树3"
+    position:
+      x: 2.5
+      y: 4.25
+      z: 0.0
+    orientation:
+      yaw: 0.0  # 弧度制
+    height: 0.7  # 树高（米）
+    fruit_zone:
+      min_height: 0.315   # 果实区域最小高度
+      max_height: 0.8   # 果实区域最大高度
+
+  # 果树4
+  tree_4:
+    id: 4
+    name: "苹果树4"
+    position:
+      x: 2.5
+      y: 5.75
+      z: 0.0
+    orientation:
+      yaw: 0.0  # 弧度制
+    height: 0.7  # 树高（米）
+    fruit_zone:
+      min_height: 0.315   # 果实区域最小高度
+      max_height: 0.8   # 果实区域最大高度
+
+# 相机检测参数
+camera_detection:
+  # 果实检测参数
+  fruit_detection:
+    min_confidence: 0.7
+    max_distance: 5.0  # 最大检测距离（米）
+    color_thresholds:
+      green_apple:
+        h_min: 35
+        h_max: 85
+        s_min: 40
+        s_max: 255
+        v_min: 40
+        v_max: 255
+      red_apple:
+        h_min: 0
+        h_max: 10
+        s_min: 50
+        s_max: 255
+        v_min: 50
+        v_max: 255
+

@@ -3,6 +3,7 @@
 
 import rospy
 from geometry_msgs.msg import PoseStamped
+from arm_control_node.msg import CameraTargets  # 改为使用CameraTargets消息
 from eyes2hand.msg import HandEyeIK
 import numpy as np
 import moveit_commander
@@ -28,9 +29,9 @@ class HandEyeTransformNode(object):
         moveit_commander.roscpp_initialize([])
         self.arm_group = moveit_commander.MoveGroupCommander("piper") # 使用统一的 piper 规划组
 
-        # 2. 订阅相机目标位姿
-        camera_topic = rospy.get_param('~camera_pose_topic', '/camera/target_pose')
-        rospy.Subscriber(camera_topic, PoseStamped, self.camera_callback)
+        # 2. 订阅相机目标位姿 - 统一使用/camera/targets话题
+        camera_topic = rospy.get_param('~camera_pose_topic', '/camera/targets')
+        rospy.Subscriber(camera_topic, CameraTargets, self.camera_callback)
 
         # 3. 发布手眼逆解结果
         self.ik_pub = rospy.Publisher('/handeye/ik_result', HandEyeIK, queue_size=10)
@@ -38,7 +39,18 @@ class HandEyeTransformNode(object):
         rospy.loginfo("Hand-eye transform node is ready.")
 
     def camera_callback(self, msg):
-        rospy.loginfo("Received camera pose.")
+        rospy.loginfo("Received camera targets: red_apple(%.2f,%.2f,%.2f), green_apple(%.2f,%.2f,%.2f), type=%s", 
+                     msg.red_apple_pose.pose.position.x, msg.red_apple_pose.pose.position.y, msg.red_apple_pose.pose.position.z,
+                     msg.green_apple_pose.pose.position.x, msg.green_apple_pose.pose.position.y, msg.green_apple_pose.pose.position.z,
+                     msg.target_type)
+
+        # 只处理红色果实（需要采集的目标）
+        if msg.target_type in ["red_apple", "both"] and msg.red_confidence > 0.7:
+            target_pose = msg.red_apple_pose.pose
+            rospy.loginfo("Processing red apple target for hand-eye transformation")
+        else:
+            rospy.loginfo("No valid red apple target detected, skipping hand-eye transformation")
+            return
 
         # 4. 手眼变换：相机坐标系 -> 末端执行器坐标系
         # 这里假设手眼外参已知，存储为4x4矩阵，或通过参数导入

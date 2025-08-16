@@ -1,18 +1,27 @@
-# CameraTargets.msg - 支持果树和苹果两种目标类型的消息
+# CameraTargets.msg - 支持红色和绿色果实检测的消息
 
 Header header
 
-# 苹果目标位置
-geometry_msgs/PoseStamped apple_pose
+# 红色果实位置（需要采集的目标）
+geometry_msgs/PoseStamped red_apple_pose
 
-# 果树位置（苹果所在的果树）
-geometry_msgs/PoseStamped tree_pose
+# 绿色果实位置（需要避障的安全目标）
+geometry_msgs/PoseStamped green_apple_pose
 
 # 目标类型标识
-string target_type    # "apple" 或 "tree"
+string target_type    # "red_apple", "green_apple", "both", "none"
 
-# 苹果ID（用于跟踪多个苹果）
-int32 apple_id
+# 红色果实ID（用于跟踪多个红色果实）
+int32 red_apple_id
+
+# 绿色果实ID（用于跟踪多个绿色果实）
+int32 green_apple_id
+
+# 红色果实置信度
+float32 red_confidence
+
+# 绿色果实置信度
+float32 green_confidence
 
 # 果树ID（用于跟踪多个果树）
 int32 tree_id

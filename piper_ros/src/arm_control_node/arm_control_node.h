@@ -11,6 +11,7 @@
 #include <piper_msgs/Gripper.h>
 #include <sensor_msgs/JointState.h>
 #include <arm_control_node/CameraTargets.h>
+#include <vector>
 
 class ArmControlNode {
 public:
@@ -18,7 +19,6 @@ public:
 
     void cameraTargetCallback(const arm_control_node::CameraTargets::ConstPtr& msg);
     void handeyeCallback(const eyes2hand::HandEyeIK::ConstPtr& msg);
-    void teachBasketCallback(const std_msgs::Float64MultiArray::ConstPtr& msg);
     void chassisArrivalCallback(const std_msgs::Bool::ConstPtr& msg);
     void odomCallback(const nav_msgs::Odometry::ConstPtr& msg);
 
@@ -28,7 +28,6 @@ private:
     ros::NodeHandle nh_;
     ros::Subscriber sub_camera_target_;    // 订阅相机目标点位
     ros::Subscriber sub_handeye_;          // 订阅手眼变换结果
-    ros::Subscriber sub_teach_basket_;     // 订阅果篮示教角度
     ros::Subscriber sub_chassis_arrival_;  // 订阅小车到位状态
     ros::Subscriber sub_odom_;             // 订阅里程计
     
@@ -45,10 +44,13 @@ private:
     std::vector<double> basket_return_rough_angles_;   // 果篮粗定位角度
     std::vector<double> basket_return_precise_angles_; // 果篮精确放回角度
     
-    arm_control_node::CameraTargets current_camera_targets_;  // 当前相机目标（苹果+果树）
+    arm_control_node::CameraTargets current_camera_targets_;  // 当前相机目标（红果+绿果）
     geometry_msgs::PoseStamped current_chassis_pose_;  // 当前小车位置
     geometry_msgs::PoseStamped storage_pose_;          // 果子存储区位姿
     geometry_msgs::PoseStamped return_pose_;           // 倒果前的位置（用于返回）
+    
+    // 果树位置信息（用于安全避障）
+    std::vector<geometry_msgs::PoseStamped> tree_positions_;
     
     // 控制参数
     double position_tolerance_;      // 位置容差
@@ -76,14 +78,20 @@ private:
     void checkAndPlanPath(const std::vector<double>& from, const std::vector<double>& to);
     void publishStatus(const std::string& status);
     
-    // 新增函数
-    bool evaluatePosition(const arm_control_node::CameraTargets::ConstPtr& targets);
-    void planChassisMovement(const arm_control_node::CameraTargets::ConstPtr& targets);
+    // 核心评估和规划方法
+    bool evaluatePositionForRedApple(const arm_control_node::CameraTargets::ConstPtr& targets);
+    void planChassisMovementForRedApple(const arm_control_node::CameraTargets::ConstPtr& targets);
+    
+    // 安全检查方法
+    bool checkSafetyForRedApple(const arm_control_node::CameraTargets::ConstPtr& targets, 
+                                const geometry_msgs::PoseStamped& chassis_pos);
+    
+    // 果树位置管理
+    void loadTreePositions();
+    
+    // 机械臂操作
     void executeArmOperation();
-    bool checkTreeCollisionRisk(const geometry_msgs::PoseStamped& apple_pos, 
-                               const geometry_msgs::PoseStamped& tree_pos, 
-                               const geometry_msgs::PoseStamped& chassis_pos);
-
+    
     // 示教角度管理
     void loadTeachAngles();
     

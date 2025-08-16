@@ -1,0 +1,52 @@
+# 果树位置配置文件
+# 用于arm_control_node的安全避障
+
+tree_positions:
+  - x: 2.0
+    y: 1.5
+    z: 0.0
+    yaw: 0.0
+    name: "苹果树1"
+    radius: 0.8  # 果树半径（米）
+    
+  - x: 4.5
+    y: 2.8
+    z: 0.0
+    yaw: 0.785
+    name: "苹果树2"
+    radius: 0.9
+    
+  - x: 1.2
+    y: 4.1
+    z: 0.0
+    yaw: 1.57
+    name: "苹果树3"
+    radius: 0.7
+    
+  - x: 6.0
+    y: 3.5
+    z: 0.0
+    yaw: 0.0
+    name: "苹果树4"
+    radius: 0.8
+    
+  - x: 3.8
+    y: 5.2
+    z: 0.0
+    yaw: 1.047
+    name: "苹果树5"
+    radius: 0.75
+
+# 安全参数
+safety_parameters:
+  # 机械臂操作安全距离
+  arm_operation_safety_margin: 0.8  # 米
+  
+  # 小车与果树最小安全距离
+  chassis_tree_min_distance: 1.2  # 米
+  
+  # 绿色果实避障安全距离
+  green_apple_safety_margin: 1.0  # 米
+  
+  # 红色果实采集最佳距离
+  red_apple_optimal_distance: 1.0  # 米

@@ -16,6 +16,9 @@
     <!-- 加载示教角度配置文件 -->
     <rosparam command="load" file="$(find arm_control_node)/config/teach_angles.yaml" />
     <rosparam command="load" file="$(find arm_control_node)/config/tree_positions.yaml" />
+    
+    <!-- 加载剪刀配置参数 -->
+    <rosparam command="load" file="$(find arm_control_node)/config/scissor_config.yaml" />
 
     <!-- 启动机械臂控制节点 -->
     <node name="arm_control_node" pkg="arm_control_node" type="arm_control_node" output="screen">

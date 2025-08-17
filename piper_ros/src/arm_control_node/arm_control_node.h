@@ -12,6 +12,19 @@
 #include <sensor_msgs/JointState.h>
 #include <arm_control_node/CameraTargets.h>
 #include <vector>
+#include <queue>
+#include <map>
+
+// 红果信息结构体
+struct RedAppleInfo {
+    geometry_msgs::PoseStamped pose;
+    int id;
+    float confidence;
+    bool is_safe;
+    ros::Time detection_time;
+    
+    RedAppleInfo() : id(0), confidence(0.0), is_safe(false) {}
+};
 
 class ArmControlNode {
 public:
@@ -52,6 +65,16 @@ private:
     // 果树位置信息（用于安全避障）
     std::vector<geometry_msgs::PoseStamped> tree_positions_;
     
+    // 新增：红果队列管理
+    std::queue<RedAppleInfo> red_apple_queue_;        // 待采摘的红果队列
+    std::map<int, RedAppleInfo> detected_red_apples_; // 已检测到的红果记录
+    int next_red_apple_id_;                           // 下一个红果ID
+    
+    // 新增：剪刀末端执行器变换矩阵
+    // 变换矩阵格式：[R, t; 0, 1] 其中 R=eye(3), t=(0.01, 0.02, 0.11)
+    double scissor_transform_[4][4];                  // 4x4变换矩阵
+    double scissor_position_tolerance_[3];            // 位置容差范围 [x_tol, y_tol, z_tol]
+    
     // 控制参数
     double position_tolerance_;      // 位置容差
     double orientation_tolerance_;   // 角度容差
@@ -84,9 +107,15 @@ private:
     double calculateSafetyScore(const arm_control_node::CameraTargets::ConstPtr& targets,
         const geometry_msgs::PoseStamped& chassis_pos);
 
-    // 安全检查方法
+    // 安全检查方法（简化版，只检查果树）
     bool checkSafetyForRedApple(const arm_control_node::CameraTargets::ConstPtr& targets, 
                                 const geometry_msgs::PoseStamped& chassis_pos);
+    
+    // 新增：红果管理方法
+    void addRedAppleToQueue(const arm_control_node::CameraTargets::ConstPtr& targets);
+    void processRedAppleQueue();
+    bool isRedAppleSafe(const RedAppleInfo& red_apple);
+    void applyScissorTransform(geometry_msgs::PoseStamped& target_pose);
     
     // 果树位置管理
     void loadTreePositions();
@@ -102,4 +131,7 @@ private:
     void publishChassisTarget(const geometry_msgs::PoseStamped& pose);
     void performDumpFruits();
     void teachBasketCallback(const std_msgs::Float64MultiArray::ConstPtr& msg);
+    
+    // 新增：初始化剪刀变换矩阵
+    void initializeScissorTransform();
 };

@@ -112,6 +112,7 @@ catkin_package(
 
 catkin_install_python(PROGRAMS
   scripts/fruit_position_node.py
+  scripts/fruit_position_node_test.py
   scripts/handeye_transform_node.py
   DESTINATION lib/${PROJECT_NAME}
 )

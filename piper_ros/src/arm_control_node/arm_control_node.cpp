@@ -5,7 +5,8 @@
 #include <tf/tf.h>
 
 ArmControlNode::ArmControlNode(ros::NodeHandle& nh) : nh_(nh), current_state_(IDLE), 
-                                                     waiting_for_chassis_(false), chassis_arrived_(false) {
+                                                     waiting_for_chassis_(false), chassis_arrived_(false),
+                                                     next_red_apple_id_(1) {
     // 订阅相机目标点位（红色和绿色果实）
     sub_camera_target_ = nh_.subscribe("/camera/targets", 10, &ArmControlNode::cameraTargetCallback, this);
     
@@ -72,8 +73,11 @@ ArmControlNode::ArmControlNode(ros::NodeHandle& nh) : nh_(nh), current_state_(ID
 
     // 从配置文件读取示教角度
     loadTeachAngles();
+    
+    // 初始化剪刀变换矩阵
+    initializeScissorTransform();
 
-    ROS_INFO("ArmControlNode initialized with red apple collection and green apple avoidance.");
+    ROS_INFO("ArmControlNode initialized with red apple collection and tree collision avoidance.");
 }
 
 void ArmControlNode::cameraTargetCallback(const arm_control_node::CameraTargets::ConstPtr& msg) {
@@ -87,17 +91,12 @@ void ArmControlNode::cameraTargetCallback(const arm_control_node::CameraTargets:
     // 检查是否有红色果实需要采集
     if (msg->target_type == "red_apple" || msg->target_type == "both") {
         if (msg->red_confidence > 0.7) { // 置信度阈值
-            current_state_ = EVALUATE_POSITION;
+            // 将红果添加到队列中
+            addRedAppleToQueue(msg);
             
-            // 评估当前位置是否适合操作红色果实
-            if (evaluatePositionForRedApple(msg)) {
-                ROS_INFO("Current position is suitable for red apple collection.");
-                current_state_ = EXECUTE_ARM_OPERATION;
-                executeArmOperation();
-            } else {
-                ROS_INFO("Current position is not suitable. Planning chassis movement.");
-                current_state_ = MOVE_CHASSIS;
-                planChassisMovementForRedApple(msg);
+            // 如果当前没有任务在执行，开始处理红果队列
+            if (current_state_ == IDLE) {
+                processRedAppleQueue();
             }
         } else {
             ROS_WARN("Red apple confidence too low: %.2f", msg->red_confidence);
@@ -113,6 +112,20 @@ void ArmControlNode::handeyeCallback(const eyes2hand::HandEyeIK::ConstPtr& msg) 
     last_handeye_ik_ = *msg;
     // 只有在小车到位后才执行精确的机械臂控制
     if (chassis_arrived_) {
+        // 应用剪刀变换到目标位姿
+        if (!last_handeye_ik_.matrix.empty() && last_handeye_ik_.matrix.size() >= 16) {
+            // 如果有变换矩阵，应用剪刀变换
+            geometry_msgs::PoseStamped target_pose;
+            target_pose.header.frame_id = last_handeye_ik_.reference_frame;
+            target_pose.pose.position.x = last_handeye_ik_.matrix[3];   // x
+            target_pose.pose.position.y = last_handeye_ik_.matrix[7];   // y
+            target_pose.pose.position.z = last_handeye_ik_.matrix[11];  // z
+            
+            applyScissorTransform(target_pose);
+            ROS_INFO("Applied scissor transform to target pose: (%.3f, %.3f, %.3f)", 
+                     target_pose.pose.position.x, target_pose.pose.position.y, target_pose.pose.position.z);
+        }
+        
         current_state_ = MOVE_TO_FRUIT;
         moveToJointAngles(last_handeye_ik_.joint_angles);
 
@@ -206,8 +219,8 @@ bool ArmControlNode::evaluatePositionForRedApple(const arm_control_node::CameraT
 bool ArmControlNode::checkSafetyForRedApple(const arm_control_node::CameraTargets::ConstPtr& targets, 
                                             const geometry_msgs::PoseStamped& chassis_pos) {
     /**
-     * 综合安全检查：绿色果实避障 + 果树避障
-     * 合并了原来的checkGreenAppleCollisionRisk和checkTreeCollisionRisk功能
+     * 简化版安全检查：只检查果树避障
+     * 删除了绿色果实的安全距离检测
      */
     
     double chassis_x = chassis_pos.pose.position.x;
@@ -222,50 +235,7 @@ bool ArmControlNode::checkSafetyForRedApple(const arm_control_node::CameraTarget
         std::pow(red_apple_y - chassis_y, 2)
     );
     
-    // 1. 检查绿色果实避障
-    if (targets->target_type != "red_apple" && targets->green_apple_pose.pose.position.x != 0.0) {
-        double green_apple_x = targets->green_apple_pose.pose.position.x;
-        double green_apple_y = targets->green_apple_pose.pose.position.y;
-        
-        double distance_to_green = std::sqrt(
-            std::pow(green_apple_x - chassis_x, 2) + 
-            std::pow(green_apple_y - chassis_y, 2)
-        );
-        
-        // 绿色果实安全余量（10cm，确保不接触）
-        double green_safety_margin = 0.1;
-        
-        // 如果绿色果实距离太近，认为有碰撞风险
-        if (distance_to_green < (distance_to_red_apple + green_safety_margin)) {
-            ROS_WARN("Green apple collision risk detected: green apple too close to operation area");
-            return false;
-        }
-        
-        // 检查绿色果实是否在机械臂操作路径上
-        double cross_product = std::abs(
-            (green_apple_x - chassis_x) * (red_apple_y - chassis_y) - 
-            (green_apple_y - chassis_y) * (red_apple_x - chassis_x)
-        );
-        double line_distance = cross_product / distance_to_red_apple;
-        
-        if (line_distance < green_safety_margin && 
-            ((green_apple_x - chassis_x) * (red_apple_x - chassis_x) + 
-             (green_apple_y - chassis_y) * (red_apple_y - chassis_y)) > 0) {
-            ROS_WARN("Green apple collision risk detected: green apple is near the arm operation path");
-            return false;
-        }
-        
-        // 检查绿色果实是否在红色果实的采集范围内
-        double distance_between_apples = std::sqrt(
-            std::pow(red_apple_x - green_apple_x, 2) + 
-            std::pow(red_apple_y - green_apple_y, 2)
-        );
-        
-        if (distance_between_apples < green_safety_margin) {
-            ROS_WARN("Green apple collision risk detected: green apple too close to red apple");
-            return false;
-        }
-    }
+    // 删除绿色果实安全检查，只保留果树避障检查
     
     // 2. 检查果树避障
     double tree_safety_margin = 0.5; // 50cm 安全余量
@@ -299,7 +269,7 @@ bool ArmControlNode::checkSafetyForRedApple(const arm_control_node::CameraTarget
         }
     }
     
-    return true; // 所有安全检查通过
+    return true; // 果树安全检查通过
 }
 
 void ArmControlNode::planChassisMovementForRedApple(const arm_control_node::CameraTargets::ConstPtr& targets) {
@@ -383,25 +353,12 @@ double ArmControlNode::calculateSafetyScore(const arm_control_node::CameraTarget
     /**
      * 计算指定小车位置的安全评分
      * 评分越高表示位置越安全
+     * 只考虑与果树的安全距离
      */
     double safety_score = 0.0;
     
     double chassis_x = chassis_pos.pose.position.x;
     double chassis_y = chassis_pos.pose.position.y;
-    
-    // 计算与绿色果实的安全距离评分
-    if (targets->target_type != "red_apple" && targets->green_apple_pose.pose.position.x != 0.0) {
-        double green_apple_x = targets->green_apple_pose.pose.position.x;
-        double green_apple_y = targets->green_apple_pose.pose.position.y;
-        
-        double distance_to_green = std::sqrt(
-            std::pow(green_apple_x - chassis_x, 2) + 
-            std::pow(green_apple_y - chassis_y, 2)
-        );
-        
-        // 距离越远，安全评分越高
-        safety_score += std::min(distance_to_green / 5.0, 1.0); // 归一化到0-1
-    }
     
     // 计算与果树的安全距离评分
     for (const auto& tree : tree_positions_) {
@@ -470,6 +427,17 @@ void ArmControlNode::executeArmOperation() {
     last_handeye_ik_.joint_angles.clear();
     last_handeye_ik_.matrix.clear();
     last_handeye_ik_.reference_frame.clear();
+    
+    // 从队列中移除已处理的红果
+    if (!red_apple_queue_.empty()) {
+        red_apple_queue_.pop();
+        ROS_INFO("Removed processed red apple from queue. Remaining: %zu", red_apple_queue_.size());
+        
+        // 如果队列中还有红果，继续处理
+        if (!red_apple_queue_.empty()) {
+            processRedAppleQueue();
+        }
+    }
 }
 
 void ArmControlNode::moveToJointAngles(const std::vector<double>& joint_angles) {
@@ -555,34 +523,6 @@ std::string ArmControlNode::stateToString(State state) {
         case RETURN_TO_WORKSITE: return "RETURN_TO_WORKSITE";
         case WAIT_FOR_RETURN: return "WAIT_FOR_RETURN";
         default: return "UNKNOWN";
-    }
-}
-
-// 检查路径是否安全（简化版本，直接尝试移动到目标位置）
-void ArmControlNode::checkAndPlanPath(const std::vector<double>& from, const std::vector<double>& to) {
-    // 由于使用服务接口，我们简化路径检查
-    // 直接尝试移动到目标位置，如果失败则认为有碰撞
-    moveit_ctrl::JointMoveitCtrl srv;
-    
-    // 设置目标关节角度
-    for (int i = 0; i < 6 && i < to.size(); ++i) {
-        srv.request.joint_states[i] = to[i];
-    }
-    
-    srv.request.gripper = 0.0; // 保持当前夹爪状态
-    srv.request.max_velocity = 0.3; // 降低速度进行路径检查
-    srv.request.max_acceleration = 0.3;
-    
-    if (piper_client_.call(srv)) {
-        if (srv.response.status) {
-            ROS_INFO("Path planning from [from] to [to] succeeded: path is collision-free.");
-        } else {
-            ROS_WARN("Path planning from [from] to [to] failed: collision or infeasible path.");
-            publishStatus("collision_detected");
-        }
-    } else {
-        ROS_WARN("Failed to check path planning from [from] to [to].");
-        publishStatus("path_check_failed");
     }
 }
 
@@ -742,9 +682,183 @@ void ArmControlNode::loadTeachAngles() {
     ROS_INFO("All teach angles loaded successfully.");
 }
 
+void ArmControlNode::initializeScissorTransform() {
+    // 初始化剪刀变换矩阵
+    // 变换矩阵格式：[R, t; 0, 1] 其中 R=eye(3), t=(0.01, 0.02, 0.11)
+    
+    // 设置旋转矩阵为单位矩阵
+    for (int i = 0; i < 3; ++i) {
+        for (int j = 0; j < 3; ++j) {
+            scissor_transform_[i][j] = (i == j) ? 1.0 : 0.0;
+        }
+    }
+    
+    // 设置平移向量 (0.01, 0.02, 0.11)
+    scissor_transform_[0][3] = 0.01;  // x方向偏移
+    scissor_transform_[1][3] = 0.02;  // y方向偏移  
+    scissor_transform_[2][3] = 0.11;  // z方向偏移
+    
+    // 设置最后一行 [0, 0, 0, 1]
+    scissor_transform_[3][0] = 0.0;
+    scissor_transform_[3][1] = 0.0;
+    scissor_transform_[3][2] = 0.0;
+    scissor_transform_[3][3] = 1.0;
+    
+    // 设置位置容差范围（可配置）
+    nh_.param<double>("scissor_x_tolerance", scissor_position_tolerance_[0], 0.02);  // x方向容差
+    nh_.param<double>("scissor_y_tolerance", scissor_position_tolerance_[1], 0.03);  // y方向容差
+    nh_.param<double>("scissor_z_tolerance", scissor_position_tolerance_[2], 0.05);  // z方向容差
+    
+    ROS_INFO("Scissor transform initialized: translation=(%.3f, %.3f, %.3f), tolerance=(%.3f, %.3f, %.3f)", 
+             scissor_transform_[0][3], scissor_transform_[1][3], scissor_transform_[2][3],
+             scissor_position_tolerance_[0], scissor_position_tolerance_[1], scissor_position_tolerance_[2]);
+}
+
 
 void ArmControlNode::run() {
     ros::spin();
+}
+
+// 新增：红果队列管理方法实现
+void ArmControlNode::addRedAppleToQueue(const arm_control_node::CameraTargets::ConstPtr& targets) {
+    // 检查是否已经检测过这个红果（通过位置判断，避免重复）
+    bool is_duplicate = false;
+    for (const auto& pair : detected_red_apples_) {
+        const RedAppleInfo& existing = pair.second;
+        double distance = std::sqrt(
+            std::pow(existing.pose.pose.position.x - targets->red_apple_pose.pose.position.x, 2) +
+            std::pow(existing.pose.pose.position.y - targets->red_apple_pose.pose.position.y, 2) +
+            std::pow(existing.pose.pose.position.z - targets->red_apple_pose.pose.position.z, 2)
+        );
+        
+        // 如果距离小于阈值，认为是同一个红果
+        if (distance < 0.05) { // 5cm阈值
+            is_duplicate = true;
+            ROS_INFO("Red apple at (%.2f, %.2f, %.2f) already detected, skipping duplicate", 
+                     targets->red_apple_pose.pose.position.x,
+                     targets->red_apple_pose.pose.position.y,
+                     targets->red_apple_pose.pose.position.z);
+            break;
+        }
+    }
+    
+    if (!is_duplicate) {
+        RedAppleInfo new_red_apple;
+        new_red_apple.pose = targets->red_apple_pose;
+        new_red_apple.id = next_red_apple_id_++;
+        new_red_apple.confidence = targets->red_confidence;
+        new_red_apple.detection_time = ros::Time::now();
+        
+        // 检查红果是否安全
+        new_red_apple.is_safe = isRedAppleSafe(new_red_apple);
+        
+        // 添加到检测记录
+        detected_red_apples_[new_red_apple.id] = new_red_apple;
+        
+        // 如果安全，添加到采摘队列
+        if (new_red_apple.is_safe) {
+            red_apple_queue_.push(new_red_apple);
+            ROS_INFO("Added safe red apple %d to queue at (%.2f, %.2f, %.2f), confidence=%.2f", 
+                     new_red_apple.id,
+                     new_red_apple.pose.pose.position.x,
+                     new_red_apple.pose.pose.position.y,
+                     new_red_apple.pose.pose.position.z,
+                     new_red_apple.confidence);
+        } else {
+            ROS_WARN("Red apple %d at (%.2f, %.2f, %.2f) is not safe, skipping", 
+                     new_red_apple.id,
+                     new_red_apple.pose.pose.position.x,
+                     new_red_apple.pose.pose.position.y,
+                     new_red_apple.pose.pose.position.z);
+        }
+    }
+}
+
+void ArmControlNode::processRedAppleQueue() {
+    if (red_apple_queue_.empty()) {
+        ROS_INFO("Red apple queue is empty, staying in IDLE state");
+        current_state_ = IDLE;
+        return;
+    }
+    
+    // 从队列中取出下一个红果（从后往前采摘）
+    RedAppleInfo& next_red_apple = red_apple_queue_.front();
+    
+    ROS_INFO("Processing red apple %d at (%.2f, %.2f, %.2f)", 
+             next_red_apple.id,
+             next_red_apple.pose.pose.position.x,
+             next_red_apple.pose.pose.position.y,
+             next_red_apple.pose.pose.position.z);
+    
+    // 评估当前位置是否适合操作这个红果
+    current_state_ = EVALUATE_POSITION;
+    
+    // 创建临时的CameraTargets消息用于评估
+    arm_control_node::CameraTargets temp_targets;
+    temp_targets.red_apple_pose = next_red_apple.pose;
+    temp_targets.red_confidence = next_red_apple.confidence;
+    temp_targets.target_type = "red_apple";
+    
+    if (evaluatePositionForRedApple(&temp_targets)) {
+        ROS_INFO("Current position is suitable for red apple %d collection.", next_red_apple.id);
+        current_state_ = EXECUTE_ARM_OPERATION;
+        executeArmOperation();
+    } else {
+        ROS_INFO("Current position is not suitable for red apple %d. Planning chassis movement.", next_red_apple.id);
+        current_state_ = MOVE_CHASSIS;
+        planChassisMovementForRedApple(&temp_targets);
+    }
+}
+
+bool ArmControlNode::isRedAppleSafe(const RedAppleInfo& red_apple) {
+    // 简化版安全检查：只检查与果树的碰撞风险
+    // 如果小车到红果距离大于小车到果树距离，则认为有碰撞风险
+    
+    double red_apple_x = red_apple.pose.pose.position.x;
+    double red_apple_y = red_apple.pose.pose.position.y;
+    
+    // 检查与果树的碰撞风险
+    double tree_safety_margin = 0.3; // 30cm 安全余量
+    for (const auto& tree : tree_positions_) {
+        double tree_x = tree.pose.position.x;
+        double tree_y = tree.pose.position.y;
+        
+        // 计算果树到红果的距离
+        double tree_to_red_distance = std::sqrt(
+            std::pow(tree_x - red_apple_x, 2) + 
+            std::pow(tree_y - red_apple_y, 2)
+        );
+        
+        // 如果果树距离红果太近，认为有碰撞风险
+        if (tree_to_red_distance < tree_safety_margin) {
+            ROS_WARN("Red apple %d is too close to tree at (%.2f, %.2f), distance=%.2f, safety_margin=%.2f", 
+                     red_apple.id, tree_x, tree_y, tree_to_red_distance, tree_safety_margin);
+            return false;
+        }
+    }
+    
+    return true;
+}
+
+void ArmControlNode::applyScissorTransform(geometry_msgs::PoseStamped& target_pose) {
+    // 应用剪刀变换矩阵到目标位姿
+    // target_pose是在相机坐标系下的，需要转换到剪刀坐标系下
+    
+    double x = target_pose.pose.position.x;
+    double y = target_pose.pose.position.y;
+    double z = target_pose.pose.position.z;
+    
+    // 应用变换矩阵：新位置 = R * 原位置 + t
+    double new_x = scissor_transform_[0][0] * x + scissor_transform_[0][1] * y + scissor_transform_[0][2] * z + scissor_transform_[0][3];
+    double new_y = scissor_transform_[1][0] * x + scissor_transform_[1][1] * y + scissor_transform_[1][2] * z + scissor_transform_[1][3];
+    double new_z = scissor_transform_[2][0] * x + scissor_transform_[2][1] * y + scissor_transform_[2][2] * z + scissor_transform_[2][3];
+    
+    target_pose.pose.position.x = new_x;
+    target_pose.pose.position.y = new_y;
+    target_pose.pose.position.z = new_z;
+    
+    ROS_DEBUG("Applied scissor transform: (%.3f, %.3f, %.3f) -> (%.3f, %.3f, %.3f)", 
+              x, y, z, new_x, new_y, new_z);
 }
 
 int main(int argc, char** argv) {

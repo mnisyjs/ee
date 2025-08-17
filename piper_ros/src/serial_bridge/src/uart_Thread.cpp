@@ -109,7 +109,6 @@ void Uart_Thread::Thread_Read_Uart()
         }
 
         /*从队列从获取正确的数据*/
-        uint8_t aligned_data[uart_length] = {0};
         if (GetAlignedFromQueue(aligned_data) != -1)
         {
             /*从队列中获取正确的数据成功*/

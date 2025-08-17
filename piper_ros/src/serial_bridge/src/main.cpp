@@ -3,6 +3,7 @@
 #include <nav_msgs/Odometry.h>
 #include <std_msgs/Bool.h>
 #include <std_msgs/String.h>
+#include <angles/angles.h>
 #include <tf/tf.h>
 #include "serial_bridge/uart.hpp"
 #include "serial_bridge/uart_Thread.hpp"

@@ -41,10 +41,10 @@ private:
     std::vector<double> place_fruit_joint_angles_;     // 放果位置角度
     std::vector<double> grab_basket_joint_angles_;     // 抓取果篮位置角度
     std::vector<double> dump_fruit_joint_angles_;      // 倾倒果子位置角度
-    std::vector<double> basket_return_rough_angles_;   // 果篮粗定位角度
-    std::vector<double> basket_return_precise_angles_; // 果篮精确放回角度
+    std::vector<double> basket_return_angles_;   // 果篮定位角度
     
     arm_control_node::CameraTargets current_camera_targets_;  // 当前相机目标（红果+绿果）
+    eyes2hand::HandEyeIK last_handeye_ik_;
     geometry_msgs::PoseStamped current_chassis_pose_;  // 当前小车位置
     geometry_msgs::PoseStamped storage_pose_;          // 果子存储区位姿
     geometry_msgs::PoseStamped return_pose_;           // 倒果前的位置（用于返回）
@@ -81,7 +81,9 @@ private:
     // 核心评估和规划方法
     bool evaluatePositionForRedApple(const arm_control_node::CameraTargets::ConstPtr& targets);
     void planChassisMovementForRedApple(const arm_control_node::CameraTargets::ConstPtr& targets);
-    
+    double calculateSafetyScore(const arm_control_node::CameraTargets::ConstPtr& targets,
+        const geometry_msgs::PoseStamped& chassis_pos);
+
     // 安全检查方法
     bool checkSafetyForRedApple(const arm_control_node::CameraTargets::ConstPtr& targets, 
                                 const geometry_msgs::PoseStamped& chassis_pos);
@@ -99,4 +101,5 @@ private:
     void startDumpIfNeeded();
     void publishChassisTarget(const geometry_msgs::PoseStamped& pose);
     void performDumpFruits();
+    void teachBasketCallback(const std_msgs::Float64MultiArray::ConstPtr& msg);
 };

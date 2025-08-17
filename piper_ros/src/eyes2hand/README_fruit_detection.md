@@ -55,10 +55,7 @@ fruit_trees:
 ### 2. 启动系统
 
 ```bash
-# 启动整个果实检测系统
-roslaunch eyes2hand fruit_detection_system.launch
-
-# 或者分别启动各个节点
+# 分别启动各个节点
 rosrun eyes2hand fruit_position_node.py
 rosrun eyes2hand handeye_transform_node.py
 rosrun arm_control_node arm_control_node

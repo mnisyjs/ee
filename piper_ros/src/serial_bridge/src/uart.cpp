@@ -56,7 +56,7 @@ int Uart::ReadBuffer()
  */
 int Uart::WriteBuffer()
 {
-    return write(fd, &writeBuff, uart_length);
+    return write(fd, &writeBuff, 8);
 }
 
 /**
@@ -76,7 +76,7 @@ void Uart::ShowReadBuff()
 void Uart::ShowWriteBuff()
 {
     printf("writeBuff: ");
-    for (size_t i = 0; i < uart_length; i++)
+    for (size_t i = 0; i < 8; i++)
         printf("%x ", writeBuff[i]);
     printf("\n");
 }
